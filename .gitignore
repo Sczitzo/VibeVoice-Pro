@@ -176,3 +176,6 @@ tags
 exp
 .gradio/
 MSFT-VV
+
+# Personal voice recordings
+/demo/voices/recorded/
