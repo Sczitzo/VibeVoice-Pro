@@ -716,14 +716,14 @@ class VibeVoiceDemo:
             # Handle Gradio-specific errors (like input validation)
             self.is_generating = False
             self.current_streamer = None
-            error_msg = f"❌ Input Error: {str(e)}"
+            error_msg = f"Input Error: {str(e)}"
             print(error_msg)
             yield None, None, error_msg, gr.update(visible=False)
 
         except Exception as e:
             self.is_generating = False
             self.current_streamer = None
-            error_msg = f"❌ An unexpected error occurred: {str(e)}"
+            error_msg = f"An unexpected error occurred: {str(e)}"
             print(error_msg)
             import traceback
             traceback.print_exc()
@@ -807,7 +807,7 @@ class VibeVoiceDemo:
                 self.current_streamer.end()
             except Exception as e:
                 print(f"Error stopping streamer: {e}")
-        print("🛑 Audio generation stop requested")
+        print("Audio generation stop requested")
 
     def load_example_scripts(self):
         """Load example scripts from the text_examples directory."""
@@ -889,6 +889,27 @@ class VibeVoiceDemo:
             return len(speakers)
 
 
+class AudioStreamBlocks(gr.Blocks):
+    """Avoid Gradio 5.50 empty HLS playlists for status-only generator updates.
+
+    None is not an audio chunk. Gradio otherwise publishes a zero-duration
+    playlist even for rejected scripts or section jobs with no live playback.
+    Preserve normal segment delivery and normal finalization once a stream exists.
+    """
+
+    async def handle_streaming_outputs(self, block_fn, data, session_hash, run,
+                                       root_path=None, final=False):
+        if session_hash is not None and run is not None:
+            existing = self.pending_streams.get(session_hash, {}).get(run, {})
+            data = list(data)
+            for index, component in enumerate(block_fn.outputs):
+                if (isinstance(component, gr.Audio) and component.streaming
+                        and data[index] is None and component._id not in existing):
+                    data[index] = gr.skip()
+        return await super().handle_streaming_outputs(
+            block_fn, data, session_hash, run, root_path=root_path, final=final)
+
+
 def create_demo_interface(demo_instance: VibeVoiceDemo):
     """Create the Gradio interface with streaming support."""
 
@@ -901,7 +922,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
     private_features = not getattr(demo_instance, "share", False)
     takes = SavedTakes(takes_directory()) if private_features else None
     recorder_setup = "initVoiceRecorder();" if private_features else "document.getElementById('open-voice-recorder').hidden = true;"
-    with gr.Blocks(title="VibeVoice", theme=theme, css=css,
+    with AudioStreamBlocks(title="VibeVoice", theme=theme, css=css,
                    js="() => {" + browser_js + "\n" + recorder_setup + "initComposer();initScriptCheck();initGeneratedAudio();initStudioAudio();}") as interface:
         with gr.Column(elem_id="guided-composer"):
             gr.HTML("""
@@ -1413,7 +1434,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
             check = check_speaker_script(script, num_speakers, sectioned)
             feedback = script_feedback_updates(script, num_speakers, check, sectioned)
             if check.message:
-                # Gradio requires a live output for the first yield even when validation fails.
+                # Status-only updates must not create an empty live stream.
                 yield generation_update(check.message, feedback=feedback)
                 return
             choices = (speaker_1, speaker_2, speaker_3, speaker_4)
@@ -1628,7 +1649,7 @@ def main():
 
     set_seed(42)  # Set a fixed seed for reproducibility
 
-    print("🎙️ Initializing VibeVoice Demo with Streaming Support...")
+    print("Initializing VibeVoice Demo with Streaming Support...")
 
     # Initialize demo instance
     demo_instance = VibeVoiceDemo(
@@ -1643,11 +1664,11 @@ def main():
     # Create interface
     interface = create_demo_interface(demo_instance)
 
-    print(f"🚀 Launching demo on port {args.port}")
-    print(f"📁 Model path: {args.model_path}")
-    print(f"🎭 Available voices: {len(demo_instance.available_voices)}")
-    print(f"🔴 Streaming mode: ENABLED")
-    print(f"🔒 Session isolation: ENABLED")
+    print(f"Launching demo on port {args.port}")
+    print(f"Model path: {args.model_path}")
+    print(f"Available voices: {len(demo_instance.available_voices)}")
+    print(f"Streaming mode: ENABLED")
+    print(f"Session isolation: ENABLED")
 
     # Launch the interface
     try:
@@ -1669,9 +1690,9 @@ def main():
             show_api=False  # Hide API docs for cleaner interface
         )
     except KeyboardInterrupt:
-        print("\n🛑 Shutting down gracefully...")
+        print("\nShutting down gracefully...")
     except Exception as e:
-        print(f"❌ Server error: {e}")
+        print(f"Server error: {e}")
         raise
     finally:
         media.cleanup()

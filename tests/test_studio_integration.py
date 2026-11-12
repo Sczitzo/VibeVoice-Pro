@@ -1,4 +1,7 @@
 """Integration contracts for the compact composer and local studio tools."""
+import ast
+import asyncio
+import io
 import tempfile
 import threading
 import unittest
@@ -8,6 +11,7 @@ from unittest.mock import patch
 
 import numpy as np
 import soundfile as sf
+from gradio.state_holder import SessionState
 from demo import gradio_demo as app
 
 
@@ -104,6 +108,67 @@ class StudioIntegrationTests(unittest.TestCase):
         calls['stop_generation_handler'](SimpleNamespace(session_hash='owner'))
         self.assertTrue(self.demo.stop_generation)
         job.close()
+
+    def test_status_only_runs_never_publish_empty_live_playlists(self):
+        def generate(**kwargs):
+            yield None, str(self.wav), 'Complete', {}
+        self.demo.generate_podcast_streaming = generate
+        async def run():
+            interface = self.interface()
+            fn = next(fn for fn in interface.fns.values()
+                      if getattr(fn.fn, '__name__', '') == 'generate_podcast_wrapper')
+            for name, script, sectioned in [('invalid', '', False),
+                    ('sections', 'Speaker 1: Hello.\n---\nSpeaker 1: Again.', True), ('file-only', 'Speaker 1: Hello.', False)]:
+                state = SessionState(interface)
+                response = await interface.process_api(fn, self.args(script) + [sectioned],
+                    state=state, session_hash=name)
+                while True:
+                    self.assertNotIn('is_stream', response['data'][0])
+                    if not response['is_generating']: break
+                    response = await interface.process_api(fn, [], state=state, session_hash=name,
+                        iterator=response['iterator'])
+                self.assertTrue(all(not streams for streams in interface.pending_streams[name].values()))
+        asyncio.run(run())
+
+    def test_real_live_segments_still_finalize(self):
+        def generate(**kwargs):
+            yield (24000, np.zeros(24000, dtype=np.float32)), None, 'Live', {}
+            yield None, str(self.wav), 'Complete', {}
+        self.demo.generate_podcast_streaming = generate
+        async def run():
+            interface = self.interface()
+            fn = next(fn for fn in interface.fns.values()
+                      if getattr(fn.fn, '__name__', '') == 'generate_podcast_wrapper')
+            state = SessionState(interface)
+            response = await interface.process_api(fn, self.args() + [False], state=state, session_hash='live')
+            while response['is_generating']:
+                response = await interface.process_api(fn, [], state=state, session_hash='live',
+                    iterator=response['iterator'])
+            streams = [stream for run in interface.pending_streams['live'].values() for stream in run.values()]
+            self.assertEqual(len(streams), 1)
+            self.assertTrue(streams[0].ended)
+            self.assertGreater(streams[0].max_duration, 0)
+        asyncio.run(run())
+
+    def test_stop_works_with_windows_cp1252_console(self):
+        output = io.BytesIO()
+        console = io.TextIOWrapper(output, encoding='cp1252', errors='strict', write_through=True)
+        ended = []
+        self.demo.current_streamer = SimpleNamespace(end=lambda: ended.append(True))
+        with patch('sys.stdout', console):
+            self.demo.stop_audio_generation()
+        self.assertTrue(self.demo.stop_generation)
+        self.assertEqual(ended, [True])
+        self.assertIn(b'Audio generation stop requested', output.getvalue())
+        console.detach()
+
+    def test_console_message_literals_are_ascii(self):
+        tree = ast.parse(Path(app.__file__).read_text(encoding='utf-8'))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'print':
+                for child in ast.walk(node):
+                    if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                        self.assertTrue(child.value.isascii(), repr(child.value))
 
     def test_shared_interface_omits_private_operations(self):
         self.demo.share = True
