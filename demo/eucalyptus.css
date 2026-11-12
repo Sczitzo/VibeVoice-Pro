@@ -851,6 +851,27 @@ gradio-app .app:has(#guided-composer) {
     .track-time { flex: none; font-size: 12px; }
 }
 
+/* Replay and Clear are quiet secondary actions, not another row of boxed controls. */
+#guided-composer #composer-transport .take-controls { gap: 8px; }
+#guided-composer #composer-transport .take-controls button {
+    border: 0 !important;
+    box-shadow: none !important;
+    background: transparent;
+    padding: 4px 7px !important;
+    border-radius: 4px;
+    font-weight: 500;
+}
+#guided-composer #composer-transport .take-controls button:hover:not(:disabled) {
+    background: #295448;
+    color: #ffffff;
+}
+#guided-composer #composer-transport .take-controls button:focus-visible {
+    outline: 2px solid var(--mint);
+    outline-offset: 2px;
+}
+@media (min-width: 791px) {
+    #guided-composer #composer-transport .take-controls button { min-height: 28px !important; }
+}
 @media (max-width: 790px) {
     #guided-composer {
         width: min(calc(100% - 24px), 720px);
