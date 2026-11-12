@@ -11,6 +11,12 @@ const audio = {
 };
 
 function harness() {
+    const inputFile = Object.assign(new EventTarget(), {files: [], focus() {}});
+    const importStart = Object.assign(new EventTarget(), {valueAsNumber: 0});
+    const importEnd = Object.assign(new EventTarget(), {valueAsNumber: 1});
+    const importRange = {querySelector: selector => selector === "canvas" ? {
+        width: 4, height: 72, getContext: () => ({clearRect() {}, fillRect() {}})
+    } : {}};
     const record = new EventTarget();
     const stop = new EventTarget();
     const pause = new EventTarget();
@@ -54,7 +60,9 @@ function harness() {
             "audio": preview, "[data-recording-status]": status,
             "[data-microphone]": microphone, "[data-refresh]": refresh,
             "[data-microphone-info]": microphoneInfo, "[data-level]": level,
-            "[data-level-message]": levelMessage})[selector]
+            "[data-level-message]": levelMessage, "#voice-import-file": inputFile,
+            "[data-import-range]": importRange, "[data-import-start]": importStart,
+            "[data-import-end]": importEnd})[selector]
     });
     const metrics = {uploads: 0, decodes: 0, closed: 0, stopped: 0, revoked: 0,
         meterClosed: 0, signal: 0, now: 0, constraints: null, disconnected: 0};
@@ -83,7 +91,7 @@ function harness() {
     const window = new EventTarget();
     window.gradio_config = {root: "http://localhost:7865"};
     const context = vm.createContext({
-        Blob, FormData, AbortController, ArrayBuffer, DataView, Event, MediaRecorder: Recorder,
+        Blob, FormData, AbortController, ArrayBuffer, DataView, TextDecoder, Event, MediaRecorder: Recorder,
         window,
         document: {
             getElementById: id => ({"voice-recorder": root, "save-voice-btn": save, "open-voice-recorder": open,
@@ -136,7 +144,7 @@ function harness() {
         frames.clear();
         callbacks.forEach(callback => callback());
     };
-    return {context, capture, record, stop, pause, open, close, cancel, root, elapsed, save, preview, status, metrics, window,
+    return {context, inputFile, capture, record, stop, pause, open, close, cancel, root, elapsed, save, preview, status, metrics, window,
         nameVoice: controls["[data-name]"], readingTitle, done, savedDownload,
         microphone, microphoneInfo, refresh, level, levelMessage, tick, frames, track,
         prepare: () => window.vibevoiceRecorder.prepareSave([null, "My voice", "Other voice", null, null])};
@@ -455,4 +463,23 @@ test("a failed level meter leaves recording and playback working", async () => {
     rig.stop.dispatchEvent(new Event("click"));
     assert.equal(rig.preview.src, "blob:fixture");
     assert.equal(rig.metrics.meterClosed, 1);
+});
+
+
+test("hung import decoder closes and allows a new WAV import", async () => {
+    const rig = harness();
+    const wav = vm.runInContext("encodeVoiceWav", rig.context)(audio);
+    rig.inputFile.files = [wav];
+    const Context = rig.context.AudioContext;
+    rig.context.AudioContext = class extends Context {
+        decodeAudioData() { return new Promise(() => {}); }
+    };
+    rig.inputFile.dispatchEvent(new Event("change"));
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(rig.metrics.closed, 1);
+    rig.context.AudioContext = Context;
+    rig.inputFile.dispatchEvent(new Event("change"));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(rig.metrics.decodes, 1);
+    assert.equal(rig.metrics.closed, 2);
 });

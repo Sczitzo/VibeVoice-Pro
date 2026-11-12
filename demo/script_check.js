@@ -7,8 +7,12 @@ function initScriptCheck() {
     const keep = document.getElementById("keep-speaker");
     if (!editor || !speakers || !feedback || !actions || !check || !keep) return;
 
-    const read = () => ({ text: editor.value, count: speakers.querySelector("input:checked")?.value });
-    const unchanged = ({ text, count }) => text === editor.value && count === read().count;
+    const read = () => ({ text: editor.value, count: speakers.querySelector("input:checked")?.value,
+        sectioned: Boolean(document.querySelector("#section-mode input:checked")) });
+    const unchanged = ({ text, count, sectioned }) => {
+        const current = read();
+        return text === current.text && count === current.count && sectioned === current.sectioned;
+    };
     const getResult = () => feedback.querySelector("[data-snapshot]");
     let explicitCheck = null;
     let revision = 0;
@@ -17,7 +21,7 @@ function initScriptCheck() {
         const result = getResult();
         if (!result || !globalThis.crypto?.subtle) return null;
         const input = read();
-        const data = new TextEncoder().encode(input.count + "\n" + input.text);
+        const data = new TextEncoder().encode(input.count + "\n" + Number(input.sectioned) + "\n" + input.text);
         const digest = await crypto.subtle.digest("SHA-256", data);
         const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
         return getResult() === result && unchanged(input) && hash === result.dataset.snapshot ? result : null;
@@ -66,6 +70,7 @@ function initScriptCheck() {
     }
     editor.addEventListener("input", onEdit);
     speakers.addEventListener("change", onEdit);
+    document.getElementById("section-mode")?.addEventListener("change", onEdit);
 
     keep.addEventListener("click", async () => {
         const shown = getResult();

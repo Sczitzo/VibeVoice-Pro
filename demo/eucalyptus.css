@@ -13,7 +13,7 @@ gradio-app .app:has(#guided-composer) {
     padding: 0;
 }
 
-#guided-composer, #composer-settings, #voice-recorder {
+#guided-composer, :is(#composer-settings, #studio-library), #voice-recorder {
     --ink: #162a25;
     --muted: #415950;
     --accent: #0b6d60;
@@ -85,8 +85,8 @@ gradio-app .app:has(#guided-composer) {
 
 .gradio-container :is(.contain, .column):has(> #guided-composer) { gap: 0; }
 
-:is(#guided-composer, #composer-settings, #voice-recorder) h1,
-:is(#guided-composer, #composer-settings, #voice-recorder) h2 {
+:is(#guided-composer, :is(#composer-settings, #studio-library), #voice-recorder) h1,
+:is(#guided-composer, :is(#composer-settings, #studio-library), #voice-recorder) h2 {
     margin: 0;
     color: var(--ink);
     letter-spacing: -0.025em;
@@ -95,10 +95,10 @@ gradio-app .app:has(#guided-composer) {
 }
 
 #guided-composer h1 { font-size: 27px; }
-#guided-composer h2, #composer-settings h2, #voice-recorder h2 { font-size: 22px; }
+#guided-composer h2, :is(#composer-settings, #studio-library) h2, #voice-recorder h2 { font-size: 22px; }
 #guided-composer .prose p { color: var(--muted); }
 #guided-composer .prose strong { color: inherit; }
-#guided-composer [hidden], #composer-settings [hidden] { display: none !important; }
+#guided-composer [hidden], :is(#composer-settings, #studio-library) [hidden] { display: none !important; }
 
 #guided-composer .html-container,
 #guided-composer :is(#composer-header, #script-heading, #speaker-heading) {
@@ -107,19 +107,19 @@ gradio-app .app:has(#guided-composer) {
 }
 
 .composer-header, .composer-brand, .composer-header-actions, .recorder-header,
-#composer-settings .settings-header {
+:is(#composer-settings, #studio-library) .settings-header {
     display: flex;
     align-items: center;
     gap: 10px;
 }
 
-.composer-header, .recorder-header, #composer-settings .settings-header {
+.composer-header, .recorder-header, :is(#composer-settings, #studio-library) .settings-header {
     justify-content: space-between;
     border-bottom: 1px solid var(--divider);
 }
 
 .composer-header { padding: 12px 22px; }
-.recorder-header, #composer-settings .settings-header { padding-bottom: var(--space-md); }
+.recorder-header, :is(#composer-settings, #studio-library) .settings-header { padding-bottom: var(--space-md); }
 .composer-brand div > span { color: var(--muted); font-size: 13px; }
 .composer-skip {
     position: absolute;
@@ -381,29 +381,29 @@ gradio-app .app:has(#guided-composer) {
 #guided-composer :is(.tone-3, [data-speaker="3"]) { --tone: #ece5f1; --tone-ink: #534165; --tone-hover: #e4d8ed; }
 #guided-composer :is(.tone-4, [data-speaker="4"]) { --tone: #f5e9d8; --tone-ink: #624a31; --tone-hover: #f1ddbf; }
 
-#guided-composer :is(button, #download-wav), #composer-settings button,
+#guided-composer :is(button, #download-wav), :is(#composer-settings, #studio-library) button,
 #voice-recorder :is(button, select, [data-saved-download]) {
     min-height: 44px;
     touch-action: manipulation;
 }
 
-:is(#guided-composer, #composer-settings, #voice-recorder) button {
+:is(#guided-composer, :is(#composer-settings, #studio-library), #voice-recorder) button {
     transition: background-color 140ms var(--ease-out), transform 140ms var(--ease-out);
 }
 
-:is(#guided-composer, #composer-settings, #voice-recorder) button:active:not(:disabled) {
+:is(#guided-composer, :is(#composer-settings, #studio-library), #voice-recorder) button:active:not(:disabled) {
     transform: scale(0.97);
 }
 
 #guided-composer :is(button, input, textarea, a):focus-visible,
-#composer-settings :is(button, input, select):focus-visible,
+:is(#composer-settings, #studio-library) :is(button, input, select):focus-visible,
 #voice-recorder :is(button, select, input, textarea, audio, a, [tabindex]):focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
 
 #guided-composer :is(.composer-button, #random-example, #check-script, #open-advanced-settings, #back-to-script, #show-speakers, #open-voice-recorder),
-#composer-settings button, #voice-recorder :is(button:not(.primary), [data-saved-download]) {
+:is(#composer-settings, #studio-library) button, #voice-recorder :is(button:not(.primary), [data-saved-download]) {
     padding: 7px var(--space-md);
     border: 1px solid var(--outline);
     border-radius: 8px;
@@ -414,7 +414,7 @@ gradio-app .app:has(#guided-composer) {
 }
 
 #guided-composer :is(.composer-button, #random-example, #check-script, #open-advanced-settings, #back-to-script, #show-speakers, #open-voice-recorder):hover,
-#composer-settings button:hover,
+:is(#composer-settings, #studio-library) button:hover,
 #voice-recorder :is(button:not(.primary), [data-saved-download]):hover { background: #e5f3ec; }
 
 #guided-composer #speaker-chips button {
@@ -449,7 +449,7 @@ gradio-app .app:has(#guided-composer) {
     align-items: center;
 }
 
-:is(#guided-composer, #composer-settings) .composer-help button {
+:is(#guided-composer, :is(#composer-settings, #studio-library)) .composer-help button {
     width: 44px;
     padding: 0;
     border: 1px solid transparent;
@@ -459,7 +459,7 @@ gradio-app .app:has(#guided-composer) {
     font: inherit;
     font-weight: 700;
 }
-:is(#guided-composer, #composer-settings) .composer-help button:hover { background: #e5f3ec; }
+:is(#guided-composer, :is(#composer-settings, #studio-library)) .composer-help button:hover { background: #e5f3ec; }
 
 .composer-tooltip {
     position: absolute;
@@ -608,8 +608,8 @@ gradio-app .app:has(#guided-composer) {
     clip-path: inset(50%);
 }
 
-#composer-settings-fields { display: none !important; }
-#composer-settings #composer-settings-fields { display: flex !important; margin-top: var(--space-md); }
+#composer-settings-fields, #studio-library-fields { display: none !important; }
+#composer-settings #composer-settings-fields, #studio-library #studio-library-fields { display: flex !important; margin-top: var(--space-md); }
 #composer-settings-host, #composer-recorder-host { height: 0; }
 #composer-recorder-host { padding: 0; border: 0; min-height: 0; }
 #voice-save-panel { display: none; }
@@ -627,7 +627,7 @@ gradio-app .app:has(#guided-composer) {
 
 
 
-:is(#voice-recorder, #composer-settings) {
+:is(#voice-recorder, :is(#composer-settings, #studio-library)) {
     box-sizing: border-box;
     position: fixed;
     inset: 50% auto auto 50%;
@@ -646,9 +646,9 @@ gradio-app .app:has(#guided-composer) {
     color-scheme: light;
 }
 
-:is(#voice-recorder, #composer-settings)[open] { animation: voice-open 220ms var(--ease-out); }
-:is(#voice-recorder, #composer-settings)::backdrop { background: #182e29a0; }
-:is(#voice-recorder, #composer-settings)[open]::backdrop { animation: voice-fade 220ms var(--ease-out); }
+:is(#voice-recorder, :is(#composer-settings, #studio-library))[open] { animation: voice-open 220ms var(--ease-out); }
+:is(#voice-recorder, :is(#composer-settings, #studio-library))::backdrop { background: #182e29a0; }
+:is(#voice-recorder, :is(#composer-settings, #studio-library))[open]::backdrop { animation: voice-fade 220ms var(--ease-out); }
 #voice-recorder [hidden] { display: none !important; }
 #voice-recorder [data-pane]:not([hidden]) { animation: voice-fade 160ms var(--ease-out); }
 #voice-recorder [data-pane] { padding-top: var(--space-lg); }
@@ -809,9 +809,27 @@ gradio-app .app:has(#guided-composer) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    :is(#voice-recorder, #composer-settings)[open], :is(#voice-recorder, #composer-settings)[open]::backdrop,
+    :is(#voice-recorder, :is(#composer-settings, #studio-library))[open], :is(#voice-recorder, :is(#composer-settings, #studio-library))[open]::backdrop,
     #voice-recorder [data-pane]:not([hidden]) { animation: none; }
-    :is(#guided-composer, #composer-settings, #voice-recorder) button { transition: none; }
-    :is(#guided-composer, #composer-settings, #voice-recorder) button:active:not(:disabled) { transform: none; }
+    :is(#guided-composer, :is(#composer-settings, #studio-library), #voice-recorder) button { transition: none; }
+    :is(#guided-composer, :is(#composer-settings, #studio-library), #voice-recorder) button:active:not(:disabled) { transform: none; }
     .recorder-bars i { transform: scaleY(0.12); transition: none; }
 }
+
+/* Studio tools live in a dialog so the composer and player remain stationary. */
+#studio-library { width: min(720px, calc(100vw - 32px)); }
+#studio-library-fields { gap: 13px; padding-top: 13px; }
+#studio-library [hidden] { display: none !important; }
+#studio-library .studio-audio-list ul { list-style: none; margin: 0; padding: 0; }
+#studio-library .studio-audio-row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--divider); }
+#studio-library .studio-audio-row small { display: block; color: var(--muted); margin-top: 5px; }
+#studio-library .studio-audio-actions { display: flex; gap: 8px; align-items: center; }
+#studio-library .studio-audio-row audio { width: 100%; }
+#studio-library #section-command, #studio-library #section-action { display: none !important; }
+#voice-recorder[data-voice-mode="import"] .recorder-steps,
+#voice-recorder[data-voice-mode="import"] .recorder-reading { display: none; }
+#voice-recorder .voice-modes { margin: 13px 0; }
+#voice-recorder [data-voice-mode][aria-pressed="true"] { background: var(--accent); color: white; }
+#voice-recorder [data-import-range] canvas { width: 100%; height: 72px; }
+#voice-recorder [data-import-range] label { flex: 1; min-width: 120px; }
+#voice-recorder [data-import-range] input { display: block; width: 100%; min-height: 44px; }

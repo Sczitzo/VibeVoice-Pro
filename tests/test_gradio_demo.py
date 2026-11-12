@@ -130,6 +130,7 @@ class GenerationRecoveryTests(unittest.TestCase):
             response = await interface.process_api(fn, [
                 2, "Speaker 1: Opening.\nUnmarked continuation.",
                 "en-Alice_woman", "en-Carter_man", None, None, 1.3, 10, 42, False,
+                False,
             ], state=state, session_hash="invalid-script")
             self.assertTrue(response["is_generating"])
             finished = await interface.process_api(fn, [], state=state, session_hash="invalid-script",
@@ -284,6 +285,29 @@ class GenerationRecoveryTests(unittest.TestCase):
         ])
         self.assertIs(captured["voice_samples"][0][0], reference)
         self.assertIn("Formatted script with 1 turns", results[-1][2])
+
+    def test_section_that_hits_model_limit_does_not_return_partial_wav(self):
+        def processor(**_kwargs):
+            return {}
+
+        def cap(**kwargs):
+            streamer = kwargs["audio_streamer"]
+            streamer.put(torch.tensor([[0.1, -0.1]]), torch.tensor([0]))
+            streamer.end()
+            return SimpleNamespace(reach_max_step_sample=torch.tensor([True]))
+
+        processor.tokenizer = None
+        self.demo.processor = processor
+        self.demo.device = "cpu"
+        self.demo.model = SimpleNamespace(set_ddpm_inference_steps=lambda **_kwargs: None, generate=cap)
+        with patch("demo.gradio_demo.time.sleep"):
+            result = list(self.demo.generate_podcast_streaming(
+                1, "Speaker 1: Hello.", speaker_1="en-Alice_woman", disable_voice_cloning=True,
+                require_complete=True,
+            ))
+        self.assertFalse(any(output[1] for output in result))
+        self.assertIn("reached its limit", result[-1][2])
+
 
 
 if __name__ == "__main__":

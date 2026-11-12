@@ -89,6 +89,165 @@ function initVoiceRecorder() {
     let startedAt = null;
     let clock = null;
     let savePending = false;
+    let mode = "record";
+    let imported = null;
+    let importVersion = 0;
+    let importLoading = false;
+    let rangePlayer = null;
+    const modes = [...root.querySelectorAll("[data-voice-mode]")];
+    const inputFile = root.querySelector("#voice-import-file");
+    const range = root.querySelector("[data-import-range]");
+    const start = root.querySelector("[data-import-start]");
+    const end = root.querySelector("[data-import-end]");
+    const playRange = root.querySelector("[data-import-preview]");
+    const nameRange = root.querySelector("[data-import-name]");
+    const draftNames = {record: "", import: ""};
+
+    const bounds = () => {
+        const from = start?.valueAsNumber, to = end?.valueAsNumber;
+        return imported && !importLoading && Number.isFinite(from) && Number.isFinite(to) &&
+            from >= 0 && to > from && to <= imported.duration &&
+            Math.round(to * imported.rate) > Math.round(from * imported.rate)
+            ? [Math.round(from * imported.rate) / imported.rate, Math.round(to * imported.rate) / imported.rate] : null;
+    };
+    function stopRange() {
+        rangePlayer?.source.stop();
+        if (rangePlayer) rangePlayer.context.close().catch(() => {});
+        rangePlayer = null;
+        if (playRange) playRange.textContent = "Preview range";
+    }
+    function drawRange() {
+        if (!imported) return;
+        const canvas = range.querySelector("canvas");
+        const draw = canvas.getContext("2d");
+        const {width, height} = canvas;
+        const {peaks, duration} = imported;
+        const selected = bounds();
+        range.querySelector("[data-import-duration]").textContent = selected
+            ? `${(selected[1] - selected[0]).toFixed(3)} seconds selected` : "";
+        draw.clearRect(0, 0, width, height);
+        if (selected) {
+            draw.fillStyle = "#d2e9de";
+            draw.fillRect(selected[0] / duration * width, 0,
+                (selected[1] - selected[0]) / duration * width, height);
+        }
+        draw.fillStyle = "#176458";
+        peaks.forEach((peak, x) => draw.fillRect(x, height / 2 - peak * height / 2, 1, Math.max(1, peak * height)));
+        updateControls();
+    }
+    inputFile?.addEventListener("change", async () => {
+        const file = inputFile.files[0];
+        if (!file) return;
+        const version = ++importVersion;
+        stopRange();
+        importLoading = true;
+        updateControls();
+        let context;
+        try {
+            if (file.size > 32 * 1024 * 1024) throw new Error("Choose a WAV no larger than 32 MiB.");
+            const bytes = await file.arrayBuffer();
+            const decoder = new TextDecoder();
+            const header = decoder.decode(bytes.slice(0, 12));
+            if (!header.startsWith("RIFF") || header.slice(8) !== "WAVE") throw new Error("Choose a valid WAV file.");
+            const view = new DataView(bytes);
+            let rate, frameBytes, format, dataBytes;
+            for (let offset = 12; offset + 8 <= bytes.byteLength;) {
+                const type = decoder.decode(bytes.slice(offset, offset + 4));
+                const size = view.getUint32(offset + 4, true);
+                if (size > bytes.byteLength - offset - 8) throw new Error("The WAV file is incomplete.");
+                if (type === "fmt " && size >= 16) {
+                    format = view.getUint16(offset + 8, true);
+                    rate = view.getUint32(offset + 12, true);
+                    frameBytes = view.getUint16(offset + 20, true);
+                }
+                if (type === "data") dataBytes = size;
+                offset += 8 + size + (size % 2);
+                if (rate && dataBytes !== undefined) break;
+            }
+            if (!rate || !frameBytes || !dataBytes) throw new Error("Choose a WAV file with audio.");
+            const originalDuration = [1, 3, 65534].includes(format) ? Math.floor(dataBytes / frameBytes) / rate : null;
+            if (originalDuration > 60) throw new Error("Choose a WAV up to 60 seconds long.");
+            try { context = new AudioContext({sampleRate: rate}); }
+            catch { context = new AudioContext(); }
+            const audio = await withVoiceDeadline(() => context.decodeAudioData(bytes),
+                "Opening the WAV took too long. Choose the file again.");
+            if (version !== importVersion || disposed) return;
+            const duration = originalDuration ?? audio.duration;
+            if (audio.numberOfChannels > 2 || duration > 60 || !audio.length) {
+                throw new Error("Choose a mono or stereo WAV up to 60 seconds long.");
+            }
+            const width = range.querySelector("canvas").width;
+            const peaks = Array(width).fill(0);
+            for (let channel = 0; channel < audio.numberOfChannels; channel++) {
+                const data = audio.getChannelData(channel);
+                for (let x = 0; x < width; x++) {
+                    const stopAt = Math.floor((x + 1) * data.length / width);
+                    for (let i = Math.floor(x * data.length / width); i < stopAt; i++) {
+                        peaks[x] = Math.max(peaks[x], Math.min(1, Math.abs(data[i])));
+                    }
+                }
+            }
+            imported = {wav: file, audio, peaks, duration, rate};
+            range.querySelector("[data-import-filename]").textContent = file.name;
+            start.value = "0";
+            end.value = String(duration);
+            range.hidden = false;
+            if (mode === "import") showStatus("");
+        } catch (error) {
+            if (version === importVersion) {
+                inputFile.value = "";
+                if (mode === "import") showStatus((error.message || "The WAV could not be opened.")
+                    + (imported ? " The previous selection is still available." : ""), true);
+            }
+        } finally {
+            if (version === importVersion) {
+                importLoading = false;
+                drawRange();
+                updateControls();
+            }
+            if (context) context.close().catch(() => {});
+        }
+    });
+    for (const field of [start, end]) field?.addEventListener("input", () => {
+        stopRange();
+        drawRange();
+        showStatus(bounds() ? "" : "Choose a start and end inside the WAV.", !bounds());
+    });
+    playRange?.addEventListener("click", () => {
+        if (rangePlayer) return stopRange();
+        const selected = bounds();
+        if (!selected) return;
+        const context = new AudioContext();
+        const source = context.createBufferSource();
+        source.buffer = imported.audio;
+        source.connect(context.destination);
+        rangePlayer = {source, context};
+        source.onended = () => { if (rangePlayer?.source === source) stopRange(); };
+        source.start(0, selected[0], selected[1] - selected[0]);
+        playRange.textContent = "Stop preview";
+    });
+    nameRange?.addEventListener("click", () => {
+        if (!bounds()) return;
+        stopRange();
+        root.removeAttribute("data-saved");
+        saveResult.hidden = true;
+        showStatus("");
+        setStage("save");
+    });
+    for (const button of modes) button.addEventListener("click", () => {
+        if (mode === button.dataset.voiceMode || busy || savePending || recorder || waitingPermission) return;
+        draftNames[mode] = voiceName.value;
+        mode = button.dataset.voiceMode;
+        root.dataset.voiceMode = mode;
+        voiceName.value = draftNames[mode];
+        voiceName.dispatchEvent(new Event("input", {bubbles: true}));
+        for (const option of modes) option.setAttribute("aria-pressed", String(option === button));
+        root.removeAttribute("data-saved");
+        preview.pause();
+        stopRange();
+        showStatus("");
+        setStage(mode === "import" ? "import" : clip ? "listen" : "microphone");
+    });
 
     function setStage(stage) {
         root.dataset.stage = stage;
@@ -99,7 +258,7 @@ function initVoiceRecorder() {
         }
         updateControls();
         if (root.open) {
-            const control = {microphone, record: readingTitle, listen: preview, save: voiceName}[stage];
+            const control = {microphone, record: readingTitle, listen: preview, save: voiceName, import: inputFile}[stage];
             control.focus();
         }
     }
@@ -218,20 +377,27 @@ function initVoiceRecorder() {
         returnToTake.disabled = locked;
         microphone.disabled = record.disabled;
         refresh.disabled = record.disabled;
-        save.disabled = locked || recorder !== null || !clip;
-        back.disabled = locked || !clip;
+        const canSave = mode === "import" ? Boolean(bounds()) : Boolean(clip);
+        save.disabled = locked || recorder !== null || !canSave;
+        back.disabled = locked || !canSave;
+        back.textContent = mode === "import" ? "Back to range" : "Back to Listen";
+        for (const option of modes) option.disabled = locked || Boolean(recorder) || waitingPermission;
+        if (playRange) playRange.disabled = !canSave;
+        if (nameRange) nameRange.disabled = !canSave;
+        if (inputFile) inputFile.disabled = locked;
     }
 
     openDialog.addEventListener("click", () => {
         if (root.open) return;
         if (!recorder && !waitingPermission) {
             if (savePending) setStage("save");
-            else setStage(clip ? "listen" : "microphone");
+            else setStage(mode === "import" ? "import" : clip ? "listen" : "microphone");
         }
         root.showModal();
         if (root.dataset.stage === "microphone") microphone.focus();
         if (root.dataset.stage === "listen") preview.focus();
         if (root.dataset.stage === "save") voiceName.focus();
+        if (root.dataset.stage === "import") inputFile.focus();
         refreshMicrophones();
     });
 
@@ -239,6 +405,7 @@ function initVoiceRecorder() {
         if (waitingPermission) cancelPermission();
         if (recorder && recorder.state !== "inactive" && !busy) stopRecording();
         preview.pause();
+        stopRange();
         root.close();
         openDialog.focus();
     }
@@ -262,7 +429,7 @@ function initVoiceRecorder() {
         showStatus("");
         setStage("save");
     });
-    back.addEventListener("click", () => setStage("listen"));
+    back.addEventListener("click", () => setStage(mode === "import" ? "import" : "listen"));
     pause.addEventListener("click", () => {
         if (!recorder || busy) return;
         if (recorder.state === "recording") {
@@ -411,13 +578,13 @@ function initVoiceRecorder() {
     cancel.addEventListener("click", cancelPermission);
     stop.addEventListener("click", stopRecording);
 
-    async function withVoiceDeadline(work) {
+    async function withVoiceDeadline(work, message = "Saving took too long. Your recording is still here. Try Save Voice again.") {
         const controller = new AbortController();
         let timer;
         const timeout = new Promise((_, reject) => {
             timer = setTimeout(() => {
                 controller.abort();
-                reject(new Error("Saving took too long. Your recording is still here. Try Save Voice again."));
+                reject(new Error(message));
             }, 20000);
         });
         try {
@@ -473,7 +640,7 @@ function initVoiceRecorder() {
 
     // Gradio marks its event pending after async preprocessing, so guard clicks here too.
     save.addEventListener("click", event => {
-        if (busy || recorder || savePending || !clip) {
+        if (busy || recorder || savePending || !(mode === "import" ? bounds() : clip)) {
             event.preventDefault();
             event.stopImmediatePropagation();
             return;
@@ -485,7 +652,9 @@ function initVoiceRecorder() {
     window.vibevoiceRecorder = {
         async prepareSave(inputs) {
             if (busy || recorder) return [null, ...inputs.slice(1)];
-            if (!clip) {
+            const selection = mode === "import" ? bounds() : null;
+            const take = mode === "import" ? imported : clip;
+            if (!take || (mode === "import" && !selection)) {
                 showStatus("Record your voice before saving.", true);
                 return [null, ...inputs.slice(1)];
             }
@@ -493,8 +662,8 @@ function initVoiceRecorder() {
             updateControls();
             showStatus("Saving your recording…");
             try {
-                const uploaded = await uploadClip(clip);
-                return [uploaded, ...inputs.slice(1)];
+                const uploaded = await uploadClip(take);
+                return selection ? [uploaded, inputs[1], ...selection] : [uploaded, ...inputs.slice(1)];
             } catch (error) {
                 showStatus(error.name === "AbortError"
                     ? "Saving took too long. Your recording is still here. Try Save Voice again."
@@ -519,12 +688,18 @@ function initVoiceRecorder() {
                 } else {
                     savedDownload.removeAttribute("href");
                 }
-                clip = null;
-                preview.pause();
-                preview.removeAttribute("src");
-                preview.load();
-                if (previewUrl) URL.revokeObjectURL(previewUrl);
-                previewUrl = null;
+                if (mode === "import") {
+                    imported = null;
+                    inputFile.value = "";
+                    range.hidden = true;
+                } else {
+                    clip = null;
+                    preview.pause();
+                    preview.removeAttribute("src");
+                    preview.load();
+                    if (previewUrl) URL.revokeObjectURL(previewUrl);
+                    previewUrl = null;
+                }
                 showStatus("");
                 if (root.open) {
                     if (root.dataset.stage !== "save") setStage("save");
@@ -536,7 +711,7 @@ function initVoiceRecorder() {
         }
     };
     window.addEventListener("beforeunload", event => {
-        if (clip || recorder) {
+        if (clip || imported || recorder) {
             event.preventDefault();
             event.returnValue = "";
         }
@@ -550,6 +725,7 @@ function initVoiceRecorder() {
         clearInterval(clock);
         holdClock();
         stopMeter();
+        stopRange();
         const active = recorder;
         if (active) {
             if (active.state !== "inactive") active.stop();

@@ -97,6 +97,39 @@ class VoiceRecorderTests(unittest.TestCase):
         saved, _ = sf.read(self.demo.voices_dir / "recorded" / "My voice.wav", dtype="int16")
         np.testing.assert_array_equal(saved, self.samples)
 
+    def test_import_saves_exact_range_and_leaves_source_unchanged(self):
+        samples = np.arange(24000, dtype=np.int16)
+        sf.write(self.existing, samples, 24000)
+        original = self.existing.read_bytes()
+        _, path = self.demo.save_recorded_voice(self.existing, "Trim", 0.25, 0.75)
+        saved, rate = sf.read(path, dtype="int16")
+        self.assertEqual(rate, 24000)
+        np.testing.assert_array_equal(saved, samples[6000:18000])
+        self.assertEqual(self.existing.read_bytes(), original)
+
+    def test_import_rejects_limits_bounds_and_nonfinite_samples(self):
+        for start, end in ((-1, 1), (0, 1), (0, 0), (float("nan"), 0.0001)):
+            with self.subTest(start=start, end=end), self.assertRaises(gr.Error):
+                self.demo.save_recorded_voice(self.existing, "Trim", start, end)
+        with patch("demo.gradio_demo.MAX_IMPORT_BYTES", 8), self.assertRaises(gr.Error):
+            self.demo.save_recorded_voice(self.existing, "Trim", 0, 0.0001)
+        bad = self.demo.voices_dir / "Float.wav"
+        sf.write(bad, np.array([0.1, np.nan]), 24000, subtype="FLOAT")
+        with self.assertRaises(gr.Error):
+            self.demo.save_recorded_voice(bad, "Trim", 0, 2 / 24000)
+        self.assertFalse((self.demo.voices_dir / "recorded").exists())
+
+    def test_shared_launch_excludes_and_cannot_save_private_voices(self):
+        self.demo.save_recorded_voice((24000, self.samples), "Private voice")
+        self.demo.share = True
+        self.demo.setup_voice_presets()
+        self.assertNotIn("Private voice", self.demo.available_voices)
+        with self.assertRaises(gr.Error):
+            self.demo.save_recorded_voice((24000, self.samples), "Shared voice")
+
+
+
+
 
 if __name__ == "__main__":
     unittest.main()

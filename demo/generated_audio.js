@@ -273,6 +273,11 @@ function initGeneratedAudio() {
             cancelled = true;
             finishLive();
         },
+        acceptExport() {
+            finishLive();
+            cancelled = false;
+            requested = false;
+        },
         complete(file) {
             if (!file?.url || cancelled) return;
             let url;
