@@ -9,8 +9,11 @@ import os
 import sys
 import tempfile
 import time
+from hashlib import sha256
+from html import escape
 from pathlib import Path
-from typing import List, Dict, Any, Iterator, Optional
+from typing import List, Dict, Any, Iterator, NamedTuple, Optional
+from unicodedata import decimal
 from datetime import datetime
 import threading
 import numpy as np
@@ -57,6 +60,57 @@ def merge_speaker_turns(lines: List[str]) -> List[str]:
             merged.append(line)
             previous_speaker = speaker
     return merged
+
+
+class ScriptCheck(NamedTuple):
+    formatted: str = ""
+    voice_slots: tuple[int, ...] = ()
+    message: str = ""
+    line: int | None = None
+    previous_label: int | None = None
+
+
+def check_speaker_script(script: str, num_speakers: int) -> ScriptCheck:
+    """Validate labels and return the text and reference slots the model needs."""
+    if not isinstance(script, str) or not script.strip():
+        return ScriptCheck(message="Please provide a script.")
+    if isinstance(num_speakers, bool) or num_speakers not in (1, 2, 3, 4):
+        return ScriptCheck(message="Choose between 1 and 4 speakers.")
+
+    label_pattern = re.compile(r"^Speaker\s+(\d+)\s*:\s*(.*)$", re.IGNORECASE)
+    lines = []
+    for i, text in enumerate(script.splitlines(), 1):
+        text = text.strip()
+        if text:
+            match = label_pattern.fullmatch(text)
+            label = ("".join(str(decimal(digit)) for digit in match[1]).lstrip("0") or "0") if match else None
+            lines.append((i, text, label, match[2] if match else text))
+    first = 0 if any(label == "0" and body for _, _, label, body in lines) else 1
+    labels = {str(first + slot): slot for slot in range(int(num_speakers))}
+    turns = []
+    previous = None
+    for line, text, label, body in lines:
+        if label is not None:
+            if not body:
+                return ScriptCheck(message=f"Line {line} needs text after the speaker label.", line=line)
+            slot = labels.get(label)
+            if slot is None:
+                return ScriptCheck(message=f"Line {line} has a speaker outside your selection.", line=line)
+            previous = slot + first
+            turns.append((slot, body))
+        elif (re.match(r"^Speaker(?:\s*[+-]?\s*\d|\s*:|\s+[A-Za-z]\s*:)", text, re.IGNORECASE)
+              or (num_speakers > 1 and re.match(r"^Speaker\s+[^:\s]+\s*:", text, re.IGNORECASE))):
+            return ScriptCheck(message=f"Line {line} has an invalid speaker label.", line=line)
+        elif num_speakers == 1:
+            turns.append((0, text))
+        else:
+            return ScriptCheck(message=f"Line {line} has no speaker label", line=line,
+                               previous_label=previous)
+
+    slots = tuple(sorted({slot for slot, _ in turns}))
+    model_ids = {slot: i for i, slot in enumerate(slots)}
+    formatted = merge_speaker_turns([f"Speaker {model_ids[slot]}: {text}" for slot, text in turns])
+    return ScriptCheck(formatted="\n".join(formatted), voice_slots=slots)
 
 
 class VibeVoiceDemo:
@@ -299,34 +353,29 @@ class VibeVoiceDemo:
                                  cfg_scale: float = 1.3,
                                  inference_steps: Optional[int] = None,
                                  seed: Optional[int] = None,
-                                 disable_voice_cloning: bool = False) -> Iterator[tuple]:
+                                 disable_voice_cloning: bool = False,
+                                 reset_stop: bool = True) -> Iterator[tuple]:
+        generation_thread = None
         try:
-            
-            # Reset stop flag and set generating state
-            self.stop_generation = False
+            if reset_stop:
+                self.stop_generation = False
             self.is_generating = True
             self.generation_error = None
             
-            # Validate inputs
-            if not script.strip():
+            check = check_speaker_script(script, num_speakers)
+            if check.message:
                 self.is_generating = False
-                raise gr.Error("Error: Please provide a script.")
-
-            # Defend against common mistake
-            script = script.replace("’", "'")
+                raise gr.Error(check.message)
             
-            if num_speakers < 1 or num_speakers > 4:
-                self.is_generating = False
-                raise gr.Error("Error: Number of speakers must be between 1 and 4.")
-            
-            # Collect selected speakers
-            selected_speakers = [speaker_1, speaker_2, speaker_3, speaker_4][:num_speakers]
+            # The processor pairs consecutive model speaker IDs with these references.
+            choices = [speaker_1, speaker_2, speaker_3, speaker_4]
+            selected_speakers = [choices[slot] for slot in check.voice_slots]
             
             # Validate speaker selections
-            for i, speaker in enumerate(selected_speakers):
+            for slot, speaker in zip(check.voice_slots, selected_speakers):
                 if not speaker or speaker not in self.available_voices:
                     self.is_generating = False
-                    raise gr.Error(f"Error: Please select a valid speaker for Speaker {i+1}.")
+                    raise gr.Error(f"Error: Please select a valid speaker for Speaker {slot+1}.")
             
             voice_cloning_enabled = not disable_voice_cloning
 
@@ -392,26 +441,8 @@ class VibeVoiceDemo:
                 yield None, None, "🛑 Generation stopped by user", gr.update(visible=False)
                 return
             
-            # Parse script to assign speaker ID's
-            lines = script.strip().split('\n')
-            formatted_script_lines = []
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                    
-                # Check if line already has speaker format
-                if line.startswith('Speaker ') and ':' in line:
-                    formatted_script_lines.append(line)
-                else:
-                    # Auto-assign to speakers in rotation
-                    speaker_id = len(formatted_script_lines) % num_speakers
-                    formatted_script_lines.append(f"Speaker {speaker_id}: {line}")
-            
-            formatted_script_lines = merge_speaker_turns(formatted_script_lines)
-            formatted_script = '\n'.join(formatted_script_lines)
-            log += f"📝 Formatted script with {len(formatted_script_lines)} turns\n\n"
+            formatted_script = check.formatted.replace("’", "'")
+            log += f"📝 Formatted script with {len(formatted_script.splitlines())} turns\n\n"
             log += "🔄 Processing with VibeVoice (streaming mode)...\n"
             
             # Check for stop signal before processing
@@ -454,17 +485,6 @@ class VibeVoiceDemo:
             )
             generation_thread.start()
             
-            # Wait for generation to actually start producing audio
-            time.sleep(1)  # Reduced from 3 to 1 second
-
-            # Check for stop signal after thread start
-            if self.stop_generation:
-                audio_streamer.end()
-                generation_thread.join(timeout=5.0)  # Wait up to 5 seconds for thread to finish
-                self.is_generating = False
-                yield None, None, "🛑 Generation stopped by user", gr.update(visible=False)
-                return
-
             # Collect audio chunks as they arrive
             sample_rate = 24000
             all_audio_chunks = []  # For final statistics
@@ -472,7 +492,7 @@ class VibeVoiceDemo:
             chunk_count = 0
             last_yield_time = time.time()
             min_yield_interval = 15 # Yield every 15 seconds
-            min_chunk_size = sample_rate * 30 # At least 2 seconds of audio
+            min_chunk_size = sample_rate * 2
             
             # Get the stream for the first (and only) sample
             audio_stream = audio_streamer.get_stream(0)
@@ -541,6 +561,11 @@ class VibeVoiceDemo:
                     pending_chunks = []
                     last_yield_time = current_time
             
+            generation_thread.join()
+            if self.stop_generation:
+                yield None, None, "🛑 Generation stopped by user", gr.update(visible=False)
+                return
+
             # Yield any remaining chunks
             if pending_chunks:
                 final_new_audio = np.concatenate(pending_chunks)
@@ -548,27 +573,12 @@ class VibeVoiceDemo:
                 log_update = log + f"🎵 Streaming final chunk: {total_duration:.1f}s total\n"
                 yield (sample_rate, final_new_audio), None, log_update, gr.update(visible=True)
                 has_yielded_audio = True  # Mark that we yielded audio
-            
-            # Wait for generation to complete (with timeout to prevent hanging)
-            generation_thread.join(timeout=5.0)  # Increased timeout to 5 seconds
-
-            # If thread is still alive after timeout, force end
-            if generation_thread.is_alive():
-                print("Warning: Generation thread did not complete within timeout")
-                audio_streamer.end()
-                generation_thread.join(timeout=5.0)
-
-            # Clean up
-            self.current_streamer = None
-            self.is_generating = False
+                if self.stop_generation:
+                    yield None, None, "🛑 Generation stopped by user", gr.update(visible=False)
+                    return
             
             generation_time = time.time() - start_time
-            
-            # Check if stopped by user
-            if self.stop_generation:
-                yield None, None, "🛑 Generation stopped by user", gr.update(visible=False)
-                return
-            
+
             if self.generation_error:
                 yield None, None, log + f"\n❌ Generation failed: {self.generation_error}", gr.update(visible=False)
                 return
@@ -637,7 +647,13 @@ class VibeVoiceDemo:
             import traceback
             traceback.print_exc()
             yield None, None, error_msg, gr.update(visible=False)
-    
+        finally:
+            if generation_thread is not None and generation_thread.is_alive():
+                self.stop_audio_generation()
+                generation_thread.join()
+            self.current_streamer = None
+            self.is_generating = False
+
     def _generate_with_streamer(
         self,
         inputs,
@@ -697,9 +713,9 @@ class VibeVoiceDemo:
             self.generation_error = f"{type(e).__name__}: {e}"
             print(f"Error in generation thread: {e}")
             traceback.print_exc()
-            # Make sure to end the stream on error
+        finally:
             audio_streamer.end()
-    
+
     def stop_audio_generation(self):
         """Stop the current audio generation process."""
         self.stop_generation = True
@@ -795,84 +811,148 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
     
     demo_dir = Path(__file__).parent
     recorder_js = (demo_dir / "voice_recorder.js").read_text(encoding="utf-8")
+    browser_js = "\n".join((recorder_js, *((demo_dir / name).read_text(encoding="utf-8")
+                                         for name in ("composer.js", "script_check.js", "generated_audio.js"))))
     css = (demo_dir / "eucalyptus.css").read_text(encoding="utf-8")
     theme = gr.themes.Base(primary_hue=gr.themes.colors.teal, font=["Inter", "Segoe UI", "sans-serif"])
-    with gr.Blocks(title="VibeVoice", theme=theme, css=css, js="() => {" + recorder_js + "\ninitVoiceRecorder();}") as interface:
+    with gr.Blocks(title="VibeVoice", theme=theme, css=css,
+                   js="() => {" + browser_js + "\ninitVoiceRecorder();initComposer();initScriptCheck();initGeneratedAudio();}") as interface:
         with gr.Column(elem_id="guided-composer"):
             gr.HTML("""
                 <header class="composer-header">
+                    <a class="composer-skip" href="#composer-editor">Skip to Script</a>
                     <div class="composer-brand">
                         <span class="composer-brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-                        <h1>VibeVoice</h1>
+                        <div><h1>VibeVoice</h1><span>Guided Composer</span></div>
                     </div>
-                    <button type="button" id="open-voice-recorder" class="composer-button"
-                            aria-haspopup="dialog">Create Voice</button>
+                    <div class="composer-header-actions">
+                        <button type="button" id="show-speakers" class="composer-button mobile-only"
+                                aria-controls="composer-speakers" aria-expanded="false">Speakers</button>
+                        <button type="button" id="open-voice-recorder" class="composer-button"
+                                aria-haspopup="dialog">Create Voice</button>
+                    </div>
                 </header>
-            """, padding=False)
+            """, elem_id="composer-header", padding=False)
 
             with gr.Row(elem_id="composer-grid"):
                 with gr.Column(elem_id="composer-script"):
                     with gr.Row(elem_id="script-heading"):
-                        gr.Markdown("## Script", elem_id="composer-script-label")
-                        random_example_btn = gr.Button("Random Example", elem_id="random-example")
-                    gr.HTML('<p id="composer-script-help">Start each turn with a speaker label, like <strong>Speaker 1:</strong></p>', padding=False)
-                    script_input = gr.Textbox(
-                        label="Script", show_label=False, elem_id="composer-editor",
-                        placeholder="Speaker 1: Welcome to our podcast…",
-                        lines=10, max_lines=16, container=False,
-                    )
+                        gr.HTML("<h2>Script</h2>", elem_id="composer-script-label", padding=False)
+                        with gr.Row(elem_classes="script-tools"):
+                            random_example_btn = gr.Button("Random Example", elem_id="random-example")
+                            check_script_btn = gr.Button("Check Script", elem_id="check-script")
+                            gr.HTML('<span id="word-count">0 words</span>', padding=False)
+                    with gr.Column(elem_id="editor-frame"):
+                        gr.HTML("""
+                            <div id="speaker-chips" aria-label="Insert a speaker label">
+                                <span>Insert speaker</span>
+                                <button type="button" data-speaker="1" aria-label="Insert Speaker 1 label">Speaker 1</button>
+                                <button type="button" data-speaker="2" aria-label="Insert Speaker 2 label">Speaker 2</button>
+                                <button type="button" data-speaker="3" aria-label="Insert Speaker 3 label" hidden>Speaker 3</button>
+                                <button type="button" data-speaker="4" aria-label="Insert Speaker 4 label" hidden>Speaker 4</button>
+                            </div>
+                        """, padding=False)
+                        script_input = gr.Textbox(
+                            label="Script", show_label=False, elem_id="composer-editor",
+                            placeholder="Speaker 1: Welcome to our podcast…",
+                            lines=5, container=False,
+                        )
+                        gr.HTML('<p id="composer-script-help">Start each turn with a speaker label.</p>', padding=False)
+                        script_feedback = gr.HTML("", elem_id="script-check-feedback", padding=False)
+                        gr.HTML('<button type="button" class="composer-button" id="keep-speaker" hidden>Keep with Speaker</button>',
+                                padding=False, elem_id="keep-speaker-host")
+                        generation_feedback = gr.Markdown(visible=False, elem_id="generation-feedback")
+                    checked_script = gr.State(False)
 
                 with gr.Column(elem_id="composer-speakers"):
-                    gr.HTML("<h2>Speakers</h2>", elem_id="speaker-heading", padding=False)
-                    num_speakers = gr.Radio([1, 2, 3, 4], value=2, label="Number of Speakers",
-                                            elem_id="speaker-count")
-                    available_speaker_names = list(demo_instance.available_voices)
-                    default_speakers = ["en-Alice_woman", "en-Carter_man", "en-Frank_man", "en-Maya_woman"]
-                    speaker_selections = []
-                    for index, default_voice in enumerate(default_speakers):
-                        fallback = available_speaker_names[index % len(available_speaker_names)] if available_speaker_names else None
-                        speaker_selections.append(gr.Dropdown(
-                            choices=available_speaker_names,
-                            value=default_voice if default_voice in available_speaker_names else fallback,
-                            label=f"Speaker {index + 1}", visible=index < 2, elem_classes="speaker-item",
-                        ))
+                    with gr.Row(elem_id="speaker-heading"):
+                        gr.HTML("""
+                            <div class="speaker-heading-label"><h2>Speakers</h2>
+                                <span class="composer-help">
+                                    <button type="button" aria-label="About speaker assignments" aria-describedby="speaker-tooltip">?</button>
+                                    <span id="speaker-tooltip" class="composer-tooltip" role="tooltip" hidden>Choose a voice for each speaker label in your script.</span>
+                                </span>
+                            </div>
+                        """, padding=False)
+                        num_speakers = gr.Radio([1, 2, 3, 4], value=2, label="Number of Speakers", elem_id="speaker-count")
+                    with gr.Column(elem_id="voice-assignments"):
+                        available_speaker_names = list(demo_instance.available_voices)
+                        default_speakers = ["en-Alice_woman", "en-Carter_man", "en-Frank_man", "en-Maya_woman"]
+                        speaker_selections = []
+                        for index, default_voice in enumerate(default_speakers):
+                            fallback = available_speaker_names[index % len(available_speaker_names)] if available_speaker_names else None
+                            speaker_selections.append(gr.Dropdown(
+                                choices=available_speaker_names,
+                                value=default_voice if default_voice in available_speaker_names else fallback,
+                                label=f"Speaker {index + 1}", visible=index < 2,
+                                elem_classes=["speaker-item", f"tone-{index + 1}"],
+                            ))
+                    gr.HTML("""
+                        <button type="button" class="composer-button" id="open-advanced-settings" aria-haspopup="dialog">Advanced Settings</button>
+                        <button type="button" class="composer-button mobile-only" id="back-to-script">Back to Script</button>
+                    """, padding=False, elem_id="speaker-actions")
 
-                    with gr.Accordion("Advanced Settings", open=False):
-                        cfg_scale = gr.Slider(1.0, 12.0, value=1.3, step=0.05, label="Guidance Strength")
-                        inference_steps = gr.Slider(1, 50, value=int(getattr(demo_instance, "inference_steps", 10)),
-                                                    step=1, label="Inference Steps")
-                        seed = gr.Number(value=42, precision=0, label="Seed (-1 = random)")
-                        disable_voice_cloning = gr.Checkbox(
-                            value=False, label="Disable voice cloning",
-                            info="Generate voices without using the selected voice recordings.",
-                        )
-
-            with gr.Row(elem_id="composer-actions"):
-                streaming_status = gr.Markdown("Generating audio…", visible=False, elem_id="streaming-status")
-                generate_btn = gr.Button("Generate Audio", variant="primary", elem_id="generate-audio")
-                stop_btn = gr.Button("Stop Generation", visible=False, elem_id="stop-generation")
-            generation_feedback = gr.Markdown(visible=False, elem_id="generation-feedback")
-
-            with gr.Column(elem_id="composer-output"):
-                gr.Markdown("## Generated Audio", elem_id="composer-output-label")
-                audio_output = gr.Audio(label="Live Audio", type="numpy", streaming=True, autoplay=True,
-                                        show_download_button=False, elem_id="live-generated-audio")
-                complete_audio_output = gr.File(type="filepath", interactive=False, visible="hidden")
+            with gr.Row(elem_id="composer-transport"):
                 gr.HTML("""
-                    <div id="generated-audio-player" hidden>
-                        <audio controls controlslist="nodownload" preload="metadata" aria-label="Generated audio"></audio>
-                        <a class="composer-button" download>Download WAV</a>
+                    <div id="generated-audio-player">
+                        <audio hidden preload="metadata" aria-label="Generated audio"></audio>
+                        <button type="button" class="composer-button" id="playback-toggle" disabled>Play</button>
+                        <div class="transport-track">
+                            <div class="track-meta">
+                                <span id="playback-title" role="status">No audio yet</span>
+                                <span class="take-controls">
+                                    <button type="button" data-replay-audio disabled>Replay</button>
+                                    <button type="button" data-clear-audio disabled>Clear</button>
+                                </span>
+                                <span class="track-time"><span id="playback-elapsed">0:00</span> / <span id="playback-duration">0:00</span></span>
+                            </div>
+                            <div class="transport-wave transport-waveform">
+                                <canvas id="playback-waveform" width="480" height="32" aria-hidden="true"></canvas>
+                                <input type="range" id="playback-seek" min="0" max="1000" step="1" value="0" aria-label="Playback position" disabled>
+                            </div>
+                        </div>
+                        <a class="composer-button" id="download-wav" download aria-disabled="true">Download WAV</a>
                     </div>
-                """, padding=False)
-                with gr.Accordion("Technical Details", open=False):
-                    log_output = gr.Textbox(label="Generation Log", lines=8, max_lines=15, interactive=False)
+                """, elem_id="playback-transport", padding=False)
+                with gr.Column(elem_id="composer-actions"):
+                    generate_btn = gr.Button("Generate Audio", variant="primary", elem_id="generate-audio")
+                    stop_btn = gr.Button("Stop Generation", visible=False, elem_id="stop-generation")
 
-            with gr.Accordion("About & Limitations", open=False, elem_id="composer-footer"):
-                gr.Markdown("""
-VibeVoice can produce unexpected, biased, or inaccurate speech. Check your output before sharing.
-Use recordings you have permission to use. Do not use synthetic speech to impersonate, deceive, or commit fraud.
-Disclose AI-generated audio when you share it.
-                """)
+        audio_output = gr.Audio(label="Live Audio", type="numpy", streaming=True, autoplay=False,
+                                show_download_button=False, elem_id="live-generated-audio")
+        complete_audio_output = gr.File(type="filepath", interactive=False, visible="hidden")
+        streaming_status = gr.Markdown("Generating audio…", visible=False, elem_id="streaming-status")
+        gr.HTML("""
+            <dialog id="composer-settings" aria-labelledby="composer-settings-title">
+                <header class="recorder-header">
+                    <h2 id="composer-settings-title">Advanced Settings</h2>
+                    <button type="button" class="composer-button" data-close-settings>Done</button>
+                </header>
+                <div id="settings-fields-host"></div>
+            </dialog>
+        """, padding=False, elem_id="composer-settings-host")
+        with gr.Column(elem_id="composer-settings-fields"):
+            gr.HTML("""
+                <div class="guidance-heading">
+                    <span>Guidance Strength</span>
+                    <span class="composer-help">
+                        <button type="button" aria-label="About guidance strength" aria-describedby="guidance-tooltip">?</button>
+                        <span id="guidance-tooltip" class="composer-tooltip" role="tooltip" hidden>Change how strongly VibeVoice follows the selected voice and script. Start with 1.3.</span>
+                    </span>
+                </div>
+            """, padding=False)
+            cfg_scale = gr.Slider(1.0, 12.0, value=1.3, step=0.05, label="Guidance Strength", show_label=False,
+                                  elem_id="guidance-strength")
+            inference_steps = gr.Slider(1, 50, value=int(getattr(demo_instance, "inference_steps", 10)),
+                                        step=1, label="Inference Steps")
+            seed = gr.Number(value=42, precision=0, label="Seed (-1 = random)")
+            disable_voice_cloning = gr.Checkbox(value=False, label="Disable voice cloning",
+                                               info="Generate voices without using the selected voice recordings.")
+            with gr.Accordion("Technical Details", open=False):
+                log_output = gr.Textbox(label="Generation Log", lines=8, max_lines=15, interactive=False)
+            with gr.Accordion("About & Limitations", open=False):
+                gr.Markdown("VibeVoice can produce inaccurate speech. Check your output before sharing. "
+                            "Use voices with permission and disclose AI-generated audio when you share it.")
 
         gr.HTML("""
             <dialog id="voice-recorder" aria-labelledby="voice-recorder-title">
@@ -888,14 +968,17 @@ Disclose AI-generated audio when you share it.
                 </ol>
                 <section class="recorder-reading" aria-labelledby="voice-reading-title">
                     <h3 id="voice-reading-title" tabindex="-1">Read Aloud</h3>
-                    <p class="recorder-help">Read the whole passage in your usual speaking voice.</p>
+                    <p class="recorder-help">Read it like you’re telling a friend what happened.</p>
                     <p class="recorder-passage">
-                        Twinkle, twinkle, little star.<br>
-                        Jack and Jill went up the hill.
+                        I lucked out at the market and got the last basket of peaches. I picked up fresh bread
+                        and a jar of jam, too.
                     </p>
                     <p class="recorder-passage">
-                        On a warm June day, a boy in a beige jacket took a blue pail of water outside and
-                        picked three fresh peaches. “Would you like to go with me?” he asked.
+                        I was enjoying my usual walk home when it started pouring. By the time I got to my
+                        front door, I was soaked. I looked in my bag for my keys. Nothing.
+                    </p>
+                    <p class="recorder-passage">
+                        Then I checked my jacket pocket, and there they were.
                     </p>
                 </section>
                 <section data-pane="microphone">
@@ -926,7 +1009,6 @@ Disclose AI-generated audio when you share it.
                         <button type="button" data-pause>Pause</button>
                         <button type="button" data-stop class="primary" disabled>Stop Recording</button>
                     </div>
-                    <p class="recorder-help recorder-next">Stop to listen to your take.</p>
                 </section>
                 <section data-pane="listen" hidden>
                     <h3>Listen to Your Recording</h3>
@@ -939,6 +1021,10 @@ Disclose AI-generated audio when you share it.
                 <section data-pane="save" hidden>
                     <div data-save-controls></div>
                     <button type="button" data-back>Back to Listen</button>
+                    <div class="recorder-actions recorder-saved-actions">
+                        <a data-saved-download download hidden>Download WAV</a>
+                        <button type="button" data-done class="primary">Done</button>
+                    </div>
                 </section>
                 <p data-recording-status role="status"></p>
             </dialog>
@@ -948,25 +1034,25 @@ Disclose AI-generated audio when you share it.
             voice_name = gr.Textbox(label="Voice Name", placeholder="My voice…", elem_id="voice-name")
             save_voice_btn = gr.Button("Save Voice", variant="primary", elem_id="save-voice-btn")
             voice_save_status = gr.Markdown(elem_id="voice-save-status")
-            saved_voice_file = gr.File(label="Saved WAV", interactive=False, visible=False, elem_id="saved-voice-download")
+            saved_voice_file = gr.File(interactive=False, visible="hidden")
             voice_saved = gr.Checkbox(value=False, visible=False)
 
         def save_recording(audio, name):
             unchanged = [gr.skip() for _ in speaker_selections]
-            hidden = gr.update(value=None, visible=False)
+            empty_file = gr.update(value=None)
             if audio is None:
                 return unchanged + [
-                    "Voice not saved. Check the recording message and try Save Voice again.", hidden, False
+                    "Voice not saved. Check the recording message and try Save Voice again.", empty_file, False
                 ]
             try:
                 saved_name, saved_path = demo_instance.save_recorded_voice(audio, name)
             except gr.Error as error:
-                return unchanged + [error.message, hidden, False]
+                return unchanged + [error.message, empty_file, False]
             choices = list(demo_instance.available_voices)
             updates = [gr.update(choices=choices) for _ in speaker_selections]
             return updates + [
                 f"Saved **{saved_name}.wav**. Choose it from any speaker dropdown.",
-                gr.update(value=str(saved_path), visible=True), True
+                gr.update(value=str(saved_path)), True
             ]
 
         save_event = save_voice_btn.click(
@@ -977,7 +1063,8 @@ Disclose AI-generated audio when you share it.
             queue=False,
         )
         save_event.success(
-            fn=None, inputs=[voice_saved], js="(saved) => window.vibevoiceRecorder.finishSave(saved)",
+            fn=None, inputs=[voice_saved, saved_voice_file],
+            js="(saved, file) => window.vibevoiceRecorder.finishSave(saved, false, file)",
             queue=False,
         )
         save_event.failure(
@@ -999,36 +1086,75 @@ Disclose AI-generated audio when you share it.
         complete_audio_output.change(
             fn=None,
             inputs=[complete_audio_output],
-            js="""(file) => {
-                const player = document.getElementById("generated-audio-player");
-                const audio = player.querySelector("audio");
-                const download = player.querySelector("a");
-                player.hidden = !file?.url;
-                if (file?.url) {
-                    audio.src = file.url;
-                    download.href = file.url;
-                    download.download = file.orig_name || "generated-audio.wav";
-                } else {
-                    audio.removeAttribute("src");
-                    audio.load();
-                    download.removeAttribute("href");
-                }
-                return [];
-            }""",
+            js="(file) => { window.vibevoicePlayback?.complete(file); return []; }",
             queue=False,
         )
         
+        def script_feedback_updates(script, count, check):
+            suggestion = check.previous_label
+            snapshot = sha256(f"{count}\n{script}".encode("utf-8")).hexdigest()
+            if check.message:
+                detail = ""
+                if check.line is not None:
+                    excerpt = script.splitlines()[check.line - 1].strip()
+                    excerpt = excerpt[:157] + "…" if len(excerpt) > 160 else excerpt
+                    detail = f'<p class="script-check-line">{escape(excerpt)}</p>'
+                if suggestion is not None:
+                    detail += f"<p>Keep it with Speaker {suggestion} or add a different speaker label.</p>"
+                message = f'<strong>{escape(check.message)}</strong>{detail}'
+            else:
+                message = "Script ready."
+            style = "script-check-issue" if check.message else "script-check-ready"
+            line = check.line if check.line is not None else ""
+            label = suggestion if suggestion is not None else ""
+            html = (f'<div class="{style}" role="status" hidden data-snapshot="{snapshot}" '
+                    f'data-line="{line}" data-label="{label}">{message}</div>')
+            return html, True
+
+        def check_script_inputs(script, count):
+            return script_feedback_updates(script, count, check_speaker_script(script, count))
+
+        def refresh_script_check(script, count, has_checked):
+            if not has_checked:
+                return gr.skip(), gr.skip()
+            return check_script_inputs(script, count)
+
+        script_check_outputs = [script_feedback, checked_script]
+        check_script_btn.click(
+            fn=check_script_inputs, inputs=[script_input, num_speakers], outputs=script_check_outputs,
+            queue=False, api_name=False, show_progress="hidden",
+        )
+        gr.on(
+            triggers=[script_input.change, num_speakers.change],
+            fn=refresh_script_check, inputs=[script_input, num_speakers, checked_script],
+            outputs=script_check_outputs, queue=False, api_name=False, show_progress="hidden",
+        )
+
         # Main generation function with streaming
         def generate_podcast_wrapper(num_speakers, script, speaker_1, speaker_2, speaker_3, speaker_4, cfg_scale, inference_steps, seed, disable_voice_cloning):
             """Wrapper function to handle the streaming generation call."""
             try:
+                check = check_speaker_script(script, num_speakers)
                 speakers = [speaker_1, speaker_2, speaker_3, speaker_4]
+                feedback = script_feedback_updates(script, num_speakers, check)
+                if check.message:
+                    # Initialize the stream even when validation rejects generation.
+                    yield (None, gr.skip(), check.message, gr.update(visible=False),
+                           gr.update(visible=True, interactive=True), gr.update(visible=False), gr.skip(), *feedback)
+                    return
+                for slot in check.voice_slots:
+                    if speakers[slot] not in demo_instance.available_voices:
+                        message = f"Choose an available voice for Speaker {slot + 1}."
+                        yield (None, gr.skip(), message, gr.update(visible=False),
+                               gr.update(visible=True, interactive=True), gr.update(visible=False),
+                               gr.update(value=message, visible=True), gr.skip(), gr.skip())
+                        return
 
-                # Clear outputs and reset visibility at start
+                demo_instance.stop_generation = False
                 hidden = gr.update(value=None, visible=False)
-                yield None, gr.update(value=None), "Starting generation…", gr.update(visible=True), gr.update(visible=False), gr.update(visible=True), hidden
-
-                # The generator will yield multiple times
+                yield (None, gr.skip(), "Starting generation…", gr.update(visible=True),
+                       gr.update(visible=False), gr.update(visible=True), hidden, *feedback)
+                no_script_change = (gr.skip(), gr.skip())
                 final_log = "Starting generation…"
                 completed = False
 
@@ -1042,30 +1168,27 @@ Disclose AI-generated audio when you share it.
                     cfg_scale=cfg_scale,
                     inference_steps=inference_steps,
                     seed=seed,
-                    disable_voice_cloning=disable_voice_cloning
+                    disable_voice_cloning=disable_voice_cloning,
+                    reset_stop=False,
                 ):
                     final_log = log
-                    
-                    # Check if we have complete audio (final yield)
                     if complete_audio is not None:
-                        # Final state: clear streaming, show complete audio
                         completed = True
-                        yield None, gr.update(value=complete_audio), log, gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.skip()
+                        yield (None, gr.update(value=complete_audio), log, gr.update(visible=False),
+                               gr.update(visible=True, interactive=True), gr.update(visible=False), gr.skip(), *no_script_change)
                     else:
-                        # Streaming state: update streaming audio only
-                        if streaming_audio is not None:
-                            yield streaming_audio, gr.skip(), log, streaming_visible, gr.update(visible=False), gr.update(visible=True), gr.skip()
-                        else:
-                            # No new audio, just update status
-                            yield None, gr.skip(), log, streaming_visible, gr.update(visible=False), gr.update(visible=True), gr.skip()
+                        yield (streaming_audio, gr.skip(), log, streaming_visible,
+                               gr.update(visible=False), gr.update(visible=True), gr.skip(), *no_script_change)
 
                 feedback = hidden
-                if not completed and not demo_instance.stop_generation and "Generation stopped" not in final_log:
+                if "Generation stopped" in final_log:
+                    feedback = gr.update(value="Generation stopped.", visible=True)
+                elif not completed:
                     message = "Please provide a script." if not (script or "").strip() else "Audio wasn’t generated. Check Technical Details and try again."
                     feedback = gr.update(value=message, visible=True)
                 yield (
-                    gr.skip(), gr.skip(), final_log, gr.update(visible=False),
-                    gr.update(visible=True), gr.update(visible=False), feedback
+                    None, gr.skip(), final_log, gr.update(visible=False),
+                    gr.update(visible=True, interactive=True), gr.update(visible=False), feedback, *no_script_change
                 )
 
             except Exception as e:
@@ -1073,52 +1196,27 @@ Disclose AI-generated audio when you share it.
                 print(error_msg)
                 import traceback
                 traceback.print_exc()
-                # Reset button states on error
-                yield None, gr.update(value=None), error_msg, gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(value="Audio wasn’t generated. Check Technical Details and try again.", visible=True)
-        
-        def stop_generation_handler():
-            """Handle stopping generation."""
-            demo_instance.stop_audio_generation()
-            # Return values for: log_output, streaming_status, generate_btn, stop_btn
-            return "🛑 Generation stopped.", gr.update(visible=False), gr.update(visible=True), gr.update(visible=False)
-        
-        # Add a clear audio function
-        def clear_audio_outputs():
-            """Clear both audio outputs before starting new generation."""
-            return None, gr.update(value=None)
+                yield (None, gr.skip(), error_msg, gr.update(visible=False),
+                       gr.update(visible=True, interactive=True), gr.update(visible=False),
+                       gr.update(value="Audio wasn’t generated. Check Technical Details and try again.", visible=True),
+                       gr.skip(), gr.skip())
 
-        # Connect generation button with streaming outputs
         generate_btn.click(
-            fn=clear_audio_outputs,
-            inputs=[],
-            outputs=[audio_output, complete_audio_output],
-            queue=False
-        ).then(  # Immediate UI update to hide Generate, show Stop (non-queued)
-            fn=lambda: (gr.update(visible=False), gr.update(visible=True)),
-            inputs=[],
-            outputs=[generate_btn, stop_btn],
-            queue=False
-        ).then(
             fn=generate_podcast_wrapper,
             inputs=[num_speakers, script_input] + speaker_selections + [cfg_scale, inference_steps, seed, disable_voice_cloning],
-            outputs=[audio_output, complete_audio_output, log_output, streaming_status, generate_btn, stop_btn, generation_feedback],
-            queue=True  # Enable Gradio's built-in queue
+            outputs=[audio_output, complete_audio_output, log_output, streaming_status, generate_btn,
+                     stop_btn, generation_feedback, *script_check_outputs],
+            js="(...inputs) => { window.vibevoicePlayback?.start(); return inputs; }",
+            queue=True, show_progress="hidden",
         )
-        
-        # Connect stop button
         stop_btn.click(
-            fn=stop_generation_handler,
+            fn=demo_instance.stop_audio_generation,
             inputs=[],
-            outputs=[log_output, streaming_status, generate_btn, stop_btn],
-            queue=False  # Don't queue stop requests
-        ).then(
-            # Clear both audio outputs after stopping
-            fn=clear_audio_outputs,
-            inputs=[],
-            outputs=[audio_output, complete_audio_output],
-            queue=False
+            outputs=[],
+            js="() => { window.vibevoicePlayback?.stop(); return []; }",
+            queue=False,
         )
-        
+
         # Function to randomly select an example
         def load_random_example(replace):
             if replace != "replace":
@@ -1153,8 +1251,8 @@ Disclose AI-generated audio when you share it.
             outputs=[num_speakers, script_input],
             js="""(script) => [!(script ?? "").trim() || window.confirm("Replace your script with a random example?") ? "replace" : ""]""",
             queue=False
-        )
-        
+        ).then(fn=None, js="() => window.vibevoiceComposer?.refreshExample()", queue=False)
+
     return interface
 
 
@@ -1203,7 +1301,7 @@ def parse_args():
     parser.add_argument(
         "--port",
         type=int,
-        default=7860,
+        default=None,
         help="Port to run the demo on",
     )
     parser.add_argument(
@@ -1239,7 +1337,7 @@ def main():
     # Create interface
     interface = create_demo_interface(demo_instance)
     
-    print(f"🚀 Launching demo on port {args.port}")
+    print(f"🚀 Launching demo on port {args.port}" if args.port is not None else "🚀 Launching demo")
     print(f"📁 Model path: {args.model_path}")
     print(f"🎭 Available voices: {len(demo_instance.available_voices)}")
     print(f"🔴 Streaming mode: ENABLED")
@@ -1253,7 +1351,7 @@ def main():
         ).launch(
             share=args.share,
             inbrowser=True,
-            # server_port=args.port,
+            server_port=args.port,
             server_name="0.0.0.0" if args.share else "127.0.0.1",
             show_error=True,
             show_api=False  # Hide API docs for cleaner interface

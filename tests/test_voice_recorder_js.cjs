@@ -16,6 +16,8 @@ function harness() {
     const pause = new EventTarget();
     const open = new EventTarget();
     const close = new EventTarget();
+    const done = Object.assign(new EventTarget(), {focus() { this.focused = true; }});
+    const savedDownload = {removeAttribute(key) { delete this[key]; }};
     const cancel = new EventTarget();
     const elapsed = {};
     const readingTitle = {focus() { this.focused = true; }};
@@ -45,6 +47,7 @@ function harness() {
         querySelectorAll: () => [],
         querySelector: selector => ({"[data-record]": record, "[data-stop]": stop,
             "[data-pause]": pause, "[data-close]": close, "[data-elapsed]": elapsed,
+            "[data-done]": done, "[data-saved-download]": savedDownload,
             "#voice-reading-title": readingTitle,
             "[data-cancel]": cancel, "[data-capture-state]": {}, "[data-active-device]": {},
             "[data-save-controls]": {append() {}}, ...controls,
@@ -134,7 +137,7 @@ function harness() {
         callbacks.forEach(callback => callback());
     };
     return {context, capture, record, stop, pause, open, close, cancel, root, elapsed, save, preview, status, metrics, window,
-        nameVoice: controls["[data-name]"], readingTitle,
+        nameVoice: controls["[data-name]"], readingTitle, done, savedDownload,
         microphone, microphoneInfo, refresh, level, levelMessage, tick, frames, track,
         prepare: () => window.vibevoiceRecorder.prepareSave([null, "My voice", "Other voice", null, null])};
 }
@@ -176,10 +179,17 @@ test("closing and reopening during a save keeps the result visible and a failure
     assert.equal(rig.save.disabled, false);
     rig.save.dispatchEvent(new Event("click"));
     await rig.prepare();
-    rig.window.vibevoiceRecorder.finishSave(true);
+    rig.window.vibevoiceRecorder.finishSave(true, false, {
+        url: "/files/voice.wav", orig_name: "My voice.wav"
+    });
     assert.equal(rig.root.dataset.stage, "save");
     assert.equal(rig.save.disabled, true);
     assert.equal(rig.preview.src, undefined);
+    assert.equal(rig.savedDownload.href, "/files/voice.wav");
+    assert.equal(rig.savedDownload.download, "My voice.wav");
+    assert.equal(rig.done.focused, true);
+    rig.done.dispatchEvent(new Event("click"));
+    assert.equal(rig.root.open, false);
 });
 
 test("WAV encoder preserves rate, interleaved channels and PCM16 amplitudes", async () => {

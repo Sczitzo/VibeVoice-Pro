@@ -44,6 +44,8 @@ function initVoiceRecorder() {
     const pause = root.querySelector("[data-pause]");
     const openDialog = document.getElementById("open-voice-recorder");
     const closeDialog = root.querySelector("[data-close]");
+    const done = root.querySelector("[data-done]");
+    const savedDownload = root.querySelector("[data-saved-download]");
     const cancel = root.querySelector("[data-cancel]");
     const retake = root.querySelector("[data-retake]");
     const returnToTake = root.querySelector("[data-return]");
@@ -242,6 +244,7 @@ function initVoiceRecorder() {
     }
 
     closeDialog.addEventListener("click", dismissRecorder);
+    done.addEventListener("click", dismissRecorder);
     root.addEventListener("cancel", event => {
         event.preventDefault();
         dismissRecorder();
@@ -502,13 +505,20 @@ function initVoiceRecorder() {
                 updateControls();
             }
         },
-        finishSave(saved, failed = false) {
+        finishSave(saved, failed = false, file = null) {
             savePending = false;
             saveResult.hidden = failed;
             root.toggleAttribute("data-saved", saved === true);
             if (failed) showStatus("Could not save. Your recording is still available. Try Save Voice again.", true);
             else if (status.textContent === "Saving your recording…") showStatus("");
             if (saved === true) {
+                savedDownload.hidden = !file?.url;
+                if (file?.url) {
+                    savedDownload.href = file.url;
+                    savedDownload.download = file.orig_name || "voice.wav";
+                } else {
+                    savedDownload.removeAttribute("href");
+                }
                 clip = null;
                 preview.pause();
                 preview.removeAttribute("src");
@@ -516,7 +526,10 @@ function initVoiceRecorder() {
                 if (previewUrl) URL.revokeObjectURL(previewUrl);
                 previewUrl = null;
                 showStatus("");
-                if (root.open && root.dataset.stage !== "save") setStage("save");
+                if (root.open) {
+                    if (root.dataset.stage !== "save") setStage("save");
+                    done.focus();
+                }
             }
             updateControls();
             return [];
