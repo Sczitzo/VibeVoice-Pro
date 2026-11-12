@@ -38,6 +38,18 @@ function initComposer() {
     const settings = document.getElementById("composer-settings");
     const settingsButton = document.getElementById("open-advanced-settings");
     const settingsFields = document.getElementById("composer-settings-fields");
+    // Match the border opening to the actual title, including its help control.
+    for (const [panelId, labelSelector] of [
+        ["composer-script", "#composer-script-label"],
+        ["composer-speakers", ".speaker-heading-label"],
+    ]) {
+        const box = document.getElementById(panelId);
+        const label = box?.querySelector(labelSelector);
+        if (!box || !label) continue;
+        const updateGap = () => box.style.setProperty("--heading-gap", `${label.getBoundingClientRect().width}px`);
+        updateGap();
+        if (typeof ResizeObserver !== "undefined") new ResizeObserver(updateGap).observe(label);
+    }
     const number = new Intl.NumberFormat();
     let editorUsed = false;
     const undo = document.getElementById("undo-script");

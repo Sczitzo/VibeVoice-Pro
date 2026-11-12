@@ -3,7 +3,7 @@ const {test}=require('node:test');
 const fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync('demo/composer.js','utf8');
 function harness(){
- class El extends EventTarget{constructor(){super();this.dataset={};this.value='';}setAttribute(){}focus(){this.dispatchEvent(new Event('focus'));}append(){}querySelectorAll(){return [];}querySelector(){return new El();}}
+ class El extends EventTarget{constructor(){super();this.dataset={};this.value='';this.style={setProperty(key,value){this[key]=value;}};}getBoundingClientRect(){return {width:100};}setAttribute(){}focus(){this.dispatchEvent(new Event('focus'));}append(){}querySelectorAll(){return [];}querySelector(){return new El();}}
  const editor=new El();editor.value='My draft';editor.selectionStart=editor.selectionEnd=8;
  editor.setSelectionRange=(s,e)=>{editor.selectionStart=s;editor.selectionEnd=e;};
  const undo=new El();undo.hidden=true;
@@ -14,7 +14,7 @@ function harness(){
  const window={};vm.runInNewContext(source+'\ninitComposer();',{document,window,Event,Intl});
  const type=text=>{editor.value=text;editor.selectionStart=editor.selectionEnd=text.length;editor.dispatchEvent(new Event('input'));};
  const key=(key,shift=false)=>{const e=new Event('keydown',{cancelable:true});Object.assign(e,{key,ctrlKey:true,shiftKey:shift});editor.dispatchEvent(e);return e.defaultPrevented;};
- return {editor,undo,type,key,example:window.vibevoiceComposer.applyExample,count,radios};
+ return {elements,editor,undo,type,key,example:window.vibevoiceComposer.applyExample,count,radios};
 }
 test('typing shows Undo and restores prior text with keyboard redo',()=>{
  const h=harness();assert.equal(h.undo.hidden,true);h.type('Changed draft');assert.equal(h.undo.hidden,false);
@@ -46,4 +46,10 @@ test('Undo restores pre-edit selection after the user moves the caret',()=>{
  const before=new Event('beforeinput');before.inputType='insertText';h.editor.dispatchEvent(before);
  h.type('My changed draft');h.key('z');
  assert.equal(h.editor.value,'My draft');assert.equal(h.editor.selectionStart,2);assert.equal(h.editor.selectionEnd,5);
+});
+
+test('panel border cutouts use the measured heading width',()=>{
+ const h=harness();
+ assert.equal(h.elements['composer-script'].style['--heading-gap'],'100px');
+ assert.equal(h.elements['composer-speakers'].style['--heading-gap'],'100px');
 });

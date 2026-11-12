@@ -752,8 +752,21 @@ gradio-app .app:has(#guided-composer) {
         position: relative;
         box-sizing: border-box;
         padding: 13px 12px 10px;
-        border: 1px solid var(--divider);
+        border: 1px solid transparent;
         border-radius: 14px;
+    }
+    /* A real border cutout, not a painted rectangle behind the title. */
+    #composer-script::before, #composer-speakers::before {
+        content: "";
+        position: absolute;
+        inset: -1px;
+        border: 1px solid var(--divider);
+        border-radius: inherit;
+        pointer-events: none;
+        clip-path: polygon(0 0, 12px 0, 12px 2px,
+            calc(12px + var(--heading-gap, 120px)) 2px,
+            calc(12px + var(--heading-gap, 120px)) 0,
+            100% 0, 100% 100%, 0 100%);
     }
     #composer-script { background: var(--field); }
     #script-heading, #speaker-heading, #speaker-heading > .block { position: static; }
