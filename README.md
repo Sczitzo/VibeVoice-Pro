@@ -8,6 +8,32 @@ This is an independent community fork, not an official Microsoft product or host
 
 ![VibeVoice Pro Guided Composer with script editor, speaker assignments, and audio playback controls](docs/images/composer.jpg)
 
+## Where this fork fits
+
+**Microsoft built the speech technology. VibeVoice Community preserved and extended the original long-form TTS code. VibeVoice Pro builds a more usable local creation workspace on that foundation.**
+
+### How the project reached this point
+
+- **Original research:** Microsoft released VibeVoice-TTS for long-form, multi-speaker speech. Voice conditioning from reference audio, the speech model, and its generation capabilities are inherited technology, not inventions of this fork.
+- **Community continuation:** Microsoft's September 5, 2025 statement says it removed the original VibeVoice-TTS code after discovering uses inconsistent with its stated intent. The community repository records a September 4 backup and continued access to that code, alongside unofficial fine-tuning work. This describes the documented history, not a claim about anyone's motives.
+- **Microsoft's project continues:** the official repository now also covers realtime speech and speech recognition. It is **not accurate to say that all of VibeVoice remains removed**. Those newer official capabilities should not be confused with features integrated into this composer.
+- **This fork:** VibeVoice Pro branches from the community revision [`952326d`](https://github.com/vibevoice-community/VibeVoice/commit/952326ddb264062466a888cf32a5b2f4e803e16e). Its changes focus on the demo application, playback, local voice/take management, and tests. The inherited `vibevoice/` model implementation, training code, and dependency file are unchanged from that baseline. We do not claim a new model, better model accuracy, or new training results.
+
+### What is inherited, and what is different?
+
+| Area | Inherited foundation | VibeVoice Pro's changes |
+| --- | --- | --- |
+| Speech generation | Long-form TTS, up to four speakers, reference-voice conditioning | A compact Guided Composer, clearer speaker assignment, script checks, and reversible example cycling |
+| Listening | The community demo already streamed generated audio and had a stop control | Separate listening from generation; carry playback position and pause state into the finished WAV; protect against duplicate requests |
+| Voice references | Existing model support for reference audio and bundled voice samples | A guided microphone recorder and WAV-range import, with review and naming before saving |
+| Completed work | Generated audio output | A local Saved Takes library and optional section retry/export workflow |
+| Reliability and setup | Community inference, device support, and setup | Windows launcher, session-focused checks, stream-polling fixes, and Python/JavaScript regression tests |
+| Training and other models | Community fine-tuning and additional model tools | Retained technical references, **not** newly integrated training or ASR features in the composer |
+
+“Pro” is this fork's name, not a paid tier or a promise of production readiness. The goal is a clearer create/listen/refine workflow, not ownership of the underlying research. See [current limits](#current-limits) before relying on it.
+
+**Primary sources:** [Microsoft's release/removal statement and current project](https://github.com/microsoft/VibeVoice/blob/16fb2cb1217c9934a886e1948ffb06120caa2df5/README.md), [the community history and credits at our baseline](https://github.com/vibevoice-community/VibeVoice/blob/952326ddb264062466a888cf32a5b2f4e803e16e/README.md), and [this fork's changes through the transparent-heading update](https://github.com/Sczitzo/VibeVoice-Pro/compare/952326d...cfcd503). The historical upstream README is also preserved [locally](docs/UPSTREAM_README.md); its dated removal notices are historical, not a description of every official offering today.
+
 ## What you can do
 
 - **Write for 1–4 speakers.** Assign voices from alphabetized lists, insert speaker labels, and check the script before generating.
