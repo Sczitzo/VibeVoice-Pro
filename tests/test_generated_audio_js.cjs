@@ -123,3 +123,9 @@ test('invalid terminal file releases pending and preserves prior valid take',()=
     h.begin();h.api.finish({running:false,completed:true},{url:'https://other.example/wrong.wav'});
     assert.equal(h.api.isPending(),false);assert.equal(h.audio.src,'http://localhost:7881/old.wav');assert.equal(h.play.disabled,false);
 });
+
+test('serialized terminal outcome completes handoff and malformed outcome safely releases',()=>{
+ const h=harness();h.begin();h.live.currentTime=6;h.api.finish(JSON.stringify({running:false,completed:true}),{url:'/new.wav'});
+ h.audio.readyState=1;h.audio.dispatchEvent(new Event('loadedmetadata'));assert.equal(h.audio.currentTime,6);assert.equal(h.api.isPending(),false);
+ h.api.start();h.api.finish('invalid',null);assert.equal(h.api.isPending(),false);
+});

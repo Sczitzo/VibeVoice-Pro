@@ -326,6 +326,10 @@ function initGeneratedAudio() {
             requested = false;
         },
         finish(outcome, file) {
+            if (typeof outcome === "string") {
+                try { outcome = JSON.parse(outcome); }
+                catch { outcome = {running: false, completed: false}; }
+            }
             if (!outcome || outcome.running) return;
             if (outcome.completed && !cancelled && this.complete(file)) return;
             finishLive();

@@ -1,4 +1,5 @@
 """Integration contracts for the compact composer and local studio tools."""
+import json
 import ast
 import asyncio
 import io
@@ -201,15 +202,46 @@ class StudioIntegrationTests(unittest.TestCase):
         self.demo.generate_podcast_streaming = generate
         calls = self.callbacks(self.interface())
         results = list(calls['generate_podcast_wrapper'](*self.args()))
-        self.assertTrue(results[0][-1]['running'])
-        self.assertEqual(results[-1][-1]['completed'], True)
-        self.assertFalse(results[-1][-1]['running'])
+        self.assertTrue(json.loads(results[0][-1])['running'])
+        self.assertEqual(json.loads(results[-1][-1])['completed'], True)
+        self.assertFalse(json.loads(results[-1][-1])['running'])
         self.assertEqual(results[-1][1]['value'], str(self.wav))
         rejected = list(calls['generate_podcast_wrapper'](*self.args('')))[-1]
-        self.assertFalse(rejected[-1]['running'])
-        self.assertFalse(rejected[-1]['completed'])
-        self.assertNotEqual(rejected[-1]['id'], results[-1][-1]['id'])
+        self.assertFalse(json.loads(rejected[-1])['running'])
+        self.assertFalse(json.loads(rejected[-1])['completed'])
+        self.assertNotEqual(json.loads(rejected[-1])['id'], json.loads(results[-1][-1])['id'])
         self.assertNotIn('value', rejected[1])
+
+    def test_random_examples_cycle_without_overwriting_editor_on_server(self):
+        self.demo.example_scripts = [[1, 'One'], [2, 'Two'], [3, 'Three']]
+        interface = self.interface()
+        choose = self.callbacks(interface)['load_random_example']
+        remaining = []
+        seen = []
+        for _ in range(3):
+            example, remaining = choose(remaining)
+            example = json.loads(example)
+            seen.append(example['script'])
+            self.assertIn('id', example)
+        self.assertEqual(set(seen), {'One', 'Two', 'Three'})
+        self.assertEqual(remaining, [])
+        fn = next(fn for fn in interface.fns.values()
+                  if getattr(fn.fn, '__name__', '') == 'load_random_example')
+        self.assertFalse(any(getattr(output, 'elem_id', None) == 'composer-editor' for output in fn.outputs))
+        self.assertEqual(fn.trigger_mode, 'once')
+
+    def test_browser_control_messages_serialize_as_parseable_json_text(self):
+        async def run():
+            interface = self.interface()
+            state = SessionState(interface)
+            funcs = {getattr(fn.fn, '__name__', ''): fn for fn in interface.fns.values()}
+            response = await interface.process_api(funcs['load_random_example'], [None],
+                                                  state=state, session_hash='transport')
+            self.assertIn('script', json.loads(response['data'][0]))
+            response = await interface.process_api(funcs['generate_podcast_wrapper'], self.args('') + [False],
+                                                  state=state, session_hash='transport')
+            self.assertFalse(json.loads(response['data'][-1])['completed'])
+        asyncio.run(run())
 
     def test_shared_interface_omits_private_operations(self):
         self.demo.share = True

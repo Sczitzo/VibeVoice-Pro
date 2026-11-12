@@ -1,3 +1,33 @@
+// Local editor history includes programmatic replacements as well as typing.
+function createScriptHistory(initial, apply, changed) {
+    let present = initial;
+    const past = [], future = [];
+    const notify = () => changed(past.length > 0);
+    return {
+        record(next) {
+            if (next.text === present.text) { present = next; return; }
+            past.push(present);
+            present = next;
+            future.length = 0;
+            notify();
+        },
+        undo() {
+            if (!past.length) return;
+            future.push(present);
+            present = past.pop();
+            apply(present);
+            notify();
+        },
+        redo() {
+            if (!future.length) return;
+            past.push(present);
+            present = future.pop();
+            apply(present);
+            notify();
+        },
+    };
+}
+
 function initComposer() {
     const shell = document.getElementById("guided-composer");
     const editor = document.querySelector("#composer-editor textarea");
@@ -10,6 +40,50 @@ function initComposer() {
     const settingsFields = document.getElementById("composer-settings-fields");
     const number = new Intl.NumberFormat();
     let editorUsed = false;
+    const undo = document.getElementById("undo-script");
+    let restoring = false;
+    const snapshot = () => ({text: editor.value, start: editor.selectionStart,
+        end: editor.selectionEnd, speakers: count.querySelector("input:checked")?.value});
+    function restore(state) {
+        restoring = true;
+        try {
+            const choice = [...count.querySelectorAll("input")].find(input => input.value === String(state.speakers));
+            if (choice && !choice.checked) choice.click();
+            editor.value = state.text;
+            editor.dispatchEvent(new Event("input", {bubbles: true}));
+            editor.focus();
+            editor.setSelectionRange(state.start ?? 0, state.end ?? 0);
+            editorUsed = true;
+        } finally { restoring = false; }
+    }
+    const history = createScriptHistory(snapshot(), restore, available => {
+        undo.hidden = !available;
+        undo.disabled = !available;
+    });
+    editor.addEventListener("input", event => {
+        if (!restoring && !event.isComposing) history.record(snapshot());
+    });
+    editor.addEventListener("compositionend", () => { if (!restoring) history.record(snapshot()); });
+    editor.addEventListener("keydown", event => {
+        if (!(event.ctrlKey || event.metaKey) || event.altKey || event.isComposing) return;
+        const key = event.key.toLowerCase();
+        if (key === "z" || (key === "y" && event.ctrlKey)) {
+            event.preventDefault();
+            if (event.shiftKey || key === "y") history.redo();
+            else history.undo();
+        }
+    });
+    editor.addEventListener("beforeinput", event => {
+        if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
+            event.preventDefault();
+            if (event.inputType === "historyUndo") history.undo();
+            else history.redo();
+        } else if (!restoring && !event.isComposing) {
+            // Remember the caret before typing/paste, including a recent pointer move.
+            history.record(snapshot());
+        }
+    });
+    undo.addEventListener("click", () => history.undo());
 
     function refresh() {
         const text = editor.value.replace(/^\s*Speaker[ \t]+\p{Nd}+[ \t]*:/gimu, "").trim();
@@ -105,6 +179,18 @@ function initComposer() {
     editor.setAttribute("autocomplete", "off");
     editor.setAttribute("name", "script");
     window.vibevoiceComposer = {
+        applyExample(example) {
+            if (typeof example === "string") {
+                try { example = JSON.parse(example); } catch { return; }
+            }
+            if (!example || typeof example.script !== "string") return;
+            // Capture even edits made while the server was selecting an example.
+            history.record(snapshot());
+            restore({text: example.script, speakers: example.speakers, start: 0, end: 0});
+            history.record(snapshot());
+            editorUsed = false;
+            refresh();
+        },
         refreshExample() {
             editorUsed = false;
             refresh();

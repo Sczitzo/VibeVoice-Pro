@@ -949,6 +949,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                         gr.HTML("<h2>Script</h2>", elem_id="composer-script-label", padding=False)
                         with gr.Row(elem_classes="script-tools"):
                             random_example_btn = gr.Button("Random Example", elem_id="random-example")
+                            gr.HTML('<button type="button" id="undo-script" class="composer-button" hidden title="Undo last script change (Ctrl+Z)">Undo</button>', padding=False)
                             check_script_btn = gr.Button("Check Script", elem_id="check-script")
                             gr.HTML('<span id="word-count">0 words</span>', padding=False)
                     with gr.Column(elem_id="editor-frame"):
@@ -1030,7 +1031,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
         audio_output = gr.Audio(label="Live Audio", type="numpy", streaming=True, autoplay=False,
                                 show_download_button=False, elem_id="live-generated-audio")
         complete_audio_output = gr.File(type="filepath", interactive=False, visible="hidden")
-        generation_outcome = gr.JSON(visible=False)
+        generation_outcome = gr.Textbox(visible="hidden")
         completed_take = gr.State(None)
         section_job = gr.State(None)
         streaming_status = gr.Markdown("Generating audio…", visible=False, elem_id="streaming-status")
@@ -1382,7 +1383,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                 *(feedback if feedback is not None else (gr.skip(), gr.skip())),
                 completed if completed else gr.skip(), job if job is not None else gr.skip(),
                 panel if panel is not None else gr.skip(),
-                {"id": uuid4().hex, "running": running, "completed": bool(completed)},
+                json.dumps({"id": uuid4().hex, "running": running, "completed": bool(completed)}),
             )
 
         def render_sections(job, running=False, note=""):
@@ -1550,41 +1551,30 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
             queue=False, api_name=False,
         )
 
-        # Function to randomly select an example
-        def load_random_example(replace):
-            if replace != "replace":
-                return gr.skip(), gr.skip()
+        example_cycle = gr.State([])
+        example_result = gr.Textbox(visible="hidden")
+
+        def load_random_example(remaining):
             import random
+            examples = getattr(demo_instance, "example_scripts", None) or [
+                [2, "Speaker 0: Welcome to our AI podcast demonstration!\nSpeaker 1: Thanks for having me. This is exciting!"]
+            ]
+            remaining = [index for index in (remaining or []) if 0 <= index < len(examples)]
+            if not remaining:
+                remaining = list(range(len(examples)))
+                random.shuffle(remaining)
+            selected = examples[remaining.pop()]
+            return json.dumps({"id": uuid4().hex, "speakers": selected[0], "script": selected[1]}), remaining
 
-            # Get available examples
-            if hasattr(demo_instance, 'example_scripts') and demo_instance.example_scripts:
-                example_scripts = demo_instance.example_scripts
-            else:
-                # Fallback to default
-                example_scripts = [
-                    [2, "Speaker 0: Welcome to our AI podcast demonstration!\nSpeaker 1: Thanks for having me. This is exciting!"]
-                ]
-
-            # Randomly select one
-            if example_scripts:
-                selected = random.choice(example_scripts)
-                num_speakers_value = selected[0]
-                script_value = selected[1]
-
-                # Return the values to update the UI
-                return num_speakers_value, script_value
-
-            # Default values if no examples
-            return 2, ""
-
-        # Connect random example button
         random_example_btn.click(
-            fn=load_random_example,
-            inputs=[script_input],
-            outputs=[num_speakers, script_input],
-            js="""(script) => [!(script ?? "").trim() || window.confirm("Replace your script with a random example?") ? "replace" : ""]""",
-            queue=False
-        ).then(fn=None, js="() => window.vibevoiceComposer?.refreshExample()", queue=False)
+            fn=load_random_example, inputs=[example_cycle], outputs=[example_result, example_cycle],
+            queue=False, trigger_mode="once",
+        )
+        example_result.change(
+            fn=None, inputs=[example_result],
+            js="(example) => { window.vibevoiceComposer?.applyExample(example); return []; }",
+            queue=False,
+        )
 
     return interface
 
