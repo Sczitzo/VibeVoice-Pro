@@ -1,181 +1,107 @@
-> [!IMPORTANT]
-> This is a community-maintained fork of VibeVoice. Following the removal of the official VibeVoice repository, this fork serves to preserve the codebase and maintain accessibility for the community while also introducing additional functionality (such as unofficial training/fine-tuning implementations)
+# VibeVoice Pro
 
-## 🎙️ VibeVoice: A Frontier Long Conversational Text-to-Speech Model
+**Write a conversation. Choose the voices. Listen, refine, and save.**
 
-[![Project Page](https://img.shields.io/badge/Project-Page-blue)](https://microsoft.github.io/VibeVoice)
-[![Hugging Face](https://img.shields.io/badge/Hugging_Face-Models-orange?logo=huggingface)](https://huggingface.co/vibevoice)
-[![Technical Report](https://img.shields.io/badge/Technical-Report-red)](https://arxiv.org/pdf/2508.19205)
-[![Colab](https://img.shields.io/badge/Colab-Demo-orange?logo=googlecolab)](https://colab.research.google.com/github/vibevoice-community/VibeVoice/blob/main/demo/VibeVoice_colab.ipynb)
+VibeVoice Pro is a local, browser-based workspace for creating spoken audio from text with the VibeVoice models. Its compact Guided Composer brings the script, up to four speakers, and playback into one view.
 
-## Community
+This is an independent community fork, not an official Microsoft product or hosted voice service. It builds on [VibeVoice Community](https://github.com/vibevoice-community/VibeVoice) and Microsoft's original VibeVoice research and implementation.
 
-**Join the unofficial Discord community: https://discord.gg/ZDEYTTRxWG** - share samples, ask questions, discuss fine-tuning, etc.
+![VibeVoice Pro Guided Composer with script editor, speaker assignments, and audio playback controls](docs/images/composer.jpg)
 
-## Overview
+## What you can do
 
-VibeVoice is a novel framework designed for generating **expressive**, **long-form**, **multi-speaker** conversational audio, such as podcasts, from text. It addresses significant challenges in traditional Text-to-Speech (TTS) systems, particularly in scalability, speaker consistency, and natural turn-taking.
+- **Write for 1–4 speakers.** Assign voices from alphabetized lists, insert speaker labels, and check the script before generating.
+- **Try an example without losing your draft.** Random Example cycles through examples. Undo restores earlier script changes, including overwritten drafts; keyboard undo and redo work too.
+- **Listen as audio is generated.** Pause listening without stopping generation. When the final WAV is ready, playback carries over your position and playing or paused state.
+- **Stop and try again.** Stop cancels the active generation. Rejected or cancelled attempts preserve the previous completed take.
+- **Create a voice.** Record with your microphone, review the take, name it, and add it to the voice library. Or import a WAV and select the range to use.
+- **Keep completed work.** Use **Takes & Sections** to name, save, preview, and download completed takes.
+- **Recover long scripts in sections.** The optional section-generation preview lets you retry unfinished sections and export a complete WAV once every section is ready.
 
-A core innovation of VibeVoice is its use of continuous speech tokenizers (Acoustic and Semantic) operating at an ultra-low frame rate of 7.5 Hz. These tokenizers efficiently preserve audio fidelity while significantly boosting computational efficiency for processing long sequences. VibeVoice employs a [next-token diffusion](https://arxiv.org/abs/2412.08635) framework, leveraging a Large Language Model (LLM) to understand textual context and dialogue flow, and a diffusion head to generate high-fidelity acoustic details.
+![Create Voice dialog with recording controls and a reading prompt](docs/images/create-voice.jpg)
 
-The model can synthesize speech up to **90 minutes** long with up to **4 distinct speakers**, surpassing the typical 1-2 speaker limits of many prior models.
+*Screenshots show the current interface with fictional example content and generic voice labels.*
 
-Fine-tuning is now supported, which is incredibly powerful. You can adapt VibeVoice to a new language or a new voice - [try it out](https://github.com/vibevoice-community/VibeVoice/blob/main/FINETUNING.md)
+## Quickstart (Windows)
 
-## [Examples](./EXAMPLES.md)
+You need **Git**, **Python 3.11**, and enough disk space for dependencies and model files. A compatible GPU is recommended; CPU generation can be slow. The first launch downloads the selected model from Hugging Face. The default 1.5B model download is approximately 5.4 GB, in addition to the Python packages.
 
-## Evaluation
+In PowerShell:
 
-<p align="left">
-  <img src="Figures/MOS-preference.png" alt="MOS Preference Results" height="260px">
-  <img src="Figures/VibeVoice.jpg" alt="VibeVoice Overview" height="250px" style="margin-right: 10px;">
-</p>
-
-
-## Updates
-
-- **[2026-08-27]** VibeVoice is part of Transformers 🤗 Check the model cards ([1.5B](https://huggingface.co/vibevoice/VibeVoice-1.5B-hf) and [7B](https://huggingface.co/vibevoice/VibeVoice-7B-hf)) for examples, including batched inference and torch compile ⚡
-- **[2026-06-12]** [Unofficial voice cloning](https://huggingface.co/mohammed-bahumaish/vibevoice-realtime-0.5b-with-encoder) for Streaming/Realtime model released by community member
-- **[2025-12-04]** Added support for VibeVoice-Streaming-0.5B model for real-time TTS!
-- **[2025-09-05]** Microsoft repo restored (without code) with statement about responsible AI use.
-- **[2025-09-04]** Community backup created after Microsoft removed original repo and models.
-- **[2025-08-26]** The [VibeVoice-7B](https://huggingface.co/vibevoice/VibeVoice-7B) model weights are open-sourced!
-- **[2025-08-28]** [Colab Notebook](https://colab.research.google.com/github/microsoft-community/VibeVoice/blob/main/demo/VibeVoice_colab.ipynb) available. Only VibeVoice-1.5B is supported due to GPU memory limitations.
-
-## Roadmap
-
-- [x] Unofficial/community training code
-- [x] HF Transformers integration ([PR](https://github.com/huggingface/transformers/pull/40546))
-- [ ] HF Transformers integration for the realtime/streaming model ([PR](https://github.com/huggingface/transformers/pull/42781))
-- [ ] VibePod: End-to-end solution that creates podcasts from documents, webpages, or even a simple topic.
-
-## Model Zoo
-
-| Model | Context Length | Generation Length | Speakers | Weight |
-|-------|----------------|-------------------|----------|--------|
-| VibeVoice-Streaming-0.5B | 8K | Real-time | 1 | [HF link](https://huggingface.co/microsoft/VibeVoice-Realtime-0.5B) |
-| VibeVoice-1.5B | 64K | ~90 min | Up to 4 | [HF link](https://huggingface.co/vibevoice/VibeVoice-1.5B) |
-| VibeVoice-Large (7B) | 32K | ~45 min | Up to 4 | [HF link](https://huggingface.co/vibevoice/VibeVoice-7B) |
-| VibeVoice-1.5B-hf | 64K | ~90 min | Up to 4 | [HF link](https://huggingface.co/vibevoice/VibeVoice-1.5B-hf) |
-| VibeVoice-7B-hf | 32K | ~45 min | Up to 4 | [HF link](https://huggingface.co/vibevoice/VibeVoice-7B-hf) |
-
-### Model Comparison
-
-- **VibeVoice-Streaming-0.5B**: Optimized for **real-time** low-latency TTS. Single speaker only. Uses pre-computed voice embeddings (.pt files) for fast inference. Best for live applications. [Unofficial voice cloning](https://huggingface.co/mohammed-bahumaish/vibevoice-realtime-0.5b-with-encoder)
-- **VibeVoice-1.5B/7B**: Full-featured models for **long-form multi-speaker** content like podcasts. Support up to 4 speakers with voice cloning from audio samples.
-
-## Installation
-
-```bash
-git clone https://github.com/vibevoice-community/VibeVoice.git
-cd VibeVoice/
-
-uv pip install -e .
+```powershell
+git clone https://github.com/Sczitzo/VibeVoice-Pro.git
+cd VibeVoice-Pro
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\python.exe -X utf8 demo\gradio_demo.py --model_path vibevoice/VibeVoice-1.5B --port 7861
 ```
 
-## Usage
+For GPU acceleration, install the PyTorch build appropriate for your GPU and drivers in this same environment using the [official PyTorch instructions](https://pytorch.org/get-started/locally/). The app chooses CUDA, MPS, or CPU according to what PyTorch reports as available. Installation and speed vary by computer; this is not a one-click packaged installer.
 
-### 🚨 Tips
+Open **http://127.0.0.1:7861** if the browser does not open automatically. Keep the terminal open while using the app. Press **Ctrl+C** in that terminal to stop the server.
 
-We observed users may encounter occasional instability when synthesizing Chinese speech. We recommend:
+After setup, you can double-click **Start-VibeVoice.cmd** in the project folder. It uses the same local environment, model, and port. The commands above do **not** enable public sharing.
 
-- Using English punctuation even for Chinese text, preferably only commas and periods.
-- Using the Large model variant, which is considerably more stable.
-- If you found the generated voice speak too fast. Please try to chunk your text with multiple speaker turns with same speaker label.
+On Linux/macOS, create a Python 3.11 virtual environment, install the editable package, and run the same demo command with that environment's Python. The included `.cmd` launcher is Windows-only. See the [upstream technical reference](docs/UPSTREAM_README.md) for other models, command-line inference, and advanced setup.
 
-We'd like to thank [PsiPi](https://huggingface.co/PsiPi) for sharing an interesting way for emotion control. Details can be found via [discussion #12](https://huggingface.co/microsoft/VibeVoice-1.5B/discussions/12).
+## Make your first take
 
-**Option 1: Launch Gradio demo**
+1. Choose the number of speakers and assign each a voice.
+2. Write your script with a label at the start of each turn:
 
-```bash
-python demo/gradio_demo.py --model_path vibevoice/VibeVoice-1.5B --share
-# or python demo/gradio_demo.py --model_path vibevoice/VibeVoice-7B --share
-# optionally add --checkpoint_path path/to/checkpoint to load a fine-tuned adapter
-# use the in-app "Disable voice cloning" setting (Advanced Settings) to skip speaker conditioning
-```
+   ```text
+   Speaker 1: Welcome! Today we are trying something new.
+   Speaker 2: Let's hear how it sounds.
+   ```
 
-**Option 2: Inference from files directly (Multi-Speaker 1.5B/7B)**
+3. Click **Check Script**, then **Generate Audio**.
+4. Use **Play/Pause** to control listening. **Stop Generation** is separate: it stops creating audio. Do not start another generation until the current one finishes.
+5. Listen to the final result. Edit the script and generate again if needed.
+6. Download the WAV, or open **Takes & Sections** to name and save the completed take.
 
-```bash
-# We provide some LLM generated example scripts under demo/text_examples/ for demo
-# 1 speaker
-python demo/inference_from_file.py --model_path vibevoice/VibeVoice-7B --txt_path demo/text_examples/1p_abs.txt --speaker_names Alice
+**Undo:** the Undo button appears after a script change. Use Ctrl+Z on Windows or Cmd+Z on macOS; Ctrl/Cmd+Shift+Z redoes a change. History belongs to the current page session, not a saved document. Copy important scripts somewhere safe before closing or refreshing the page.
 
-# or more speakers
-python demo/inference_from_file.py --model_path vibevoice/VibeVoice-7B --txt_path demo/text_examples/2p_music.txt --speaker_names Alice Frank
+### Add your own voice
 
-# load a fine-tuned LoRA checkpoint
-python demo/inference_from_file.py --model_path vibevoice/VibeVoice-7B --txt_path demo/text_examples/1p_abs.txt --speaker_names Alice --checkpoint_path path/to/checkpoint
+Open **Create Voice**, choose your microphone, and record the reading prompt. Allow browser microphone access when you are ready. Stop, listen, and save with a new name. A saved voice appears in the speaker lists; saving it does not change your existing speaker assignments.
 
-# disable voice cloning (skip speech prefill)
-python demo/inference_from_file.py --model_path vibevoice/VibeVoice-7B --txt_path demo/text_examples/1p_abs.txt --speaker_names Alice --disable_prefill
-```
+For **Import audio**, choose a mono or stereo WAV no longer than **60 seconds** and no larger than **32 MiB**. Select the start and end of the range, preview it, then name and save the voice. Use clean speech with minimal background noise. Only use recordings you have permission to use.
 
-**Option 3: Streaming Model (0.5B) - Real-time TTS**
+### Generate in sections (preview)
 
-The streaming model uses pre-computed voice embeddings for low-latency generation:
+Enable **Generate in sections (preview)** in Advanced Settings. Separate script sections with a line containing `---`, and use speaker labels inside each section. Open **Takes & Sections** to see progress, preview finished sections, retry failed or stopped ones, and export the full WAV. Section recovery is tied to the current session; save or download completed output before closing the app.
 
-```bash
-# Basic usage with streaming model
-python demo/streaming_inference_from_file.py \
-    --model_path microsoft/VibeVoice-Realtime-0.5B \
-    --txt_path demo/text_examples/1p_vibevoice.txt \
-    --speaker_name Emma
+## Privacy and responsible use
 
-# Available voice presets: Carter, Davis, Emma, Frank, Grace, Mike (English), Samuel (Indian English)
-# Adjust CFG scale and DDPM steps for quality/speed tradeoff
-python demo/streaming_inference_from_file.py \
-    --model_path microsoft/VibeVoice-Realtime-0.5B \
-    --txt_path demo/text_examples/1p_vibevoice.txt \
-    --speaker_name Mike \
-    --cfg_scale 1.5 \
-    --ddpm_steps 5
-```
+- The normal launch binds to your computer's local address. Audio processing runs in the local application; downloading dependencies and models requires internet access. Upstream libraries may perform their own update or telemetry checks. Local launch is not a guarantee of zero network traffic.
+- Recorded/imported voices are stored under `demo/voices/recorded/`, which is excluded from Git. Completed takes are stored outside the repository: `%LOCALAPPDATA%\VibeVoicePro\Takes` on Windows, or `~/.local/share/VibeVoicePro/Takes` otherwise. The app also creates temporary audio/cache files.
+- Git exclusions are not encryption, deletion, or a backup. Protect your computer and review files before publishing. Do not commit personal recordings, generated private audio, credentials, or local logs.
+- Public sharing is optional and is **not** the quickstart default. The app disables private recording/import, saved-take, and section tools in shared mode. Do not treat a shared demo as a secure multi-user service or expose sensitive scripts.
+- Use a person's voice only with their permission. Do not impersonate people deceptively, create fraudulent audio, or represent generated speech as an authentic recording. Clearly disclose synthetic audio where appropriate.
 
-Voice presets are stored as `.pt` files in `demo/voices/streaming_model/`. These contain pre-computed KV cache embeddings for fast inference. Voice cloning is not supported for now.
+## Current limits
 
-NOTE: If you get the warning `Some weights of VibeVoiceStreamingForConditionalGenerationInference were not initialized from the model checkpoint` when loading, this is expected. This is because voice cloning capabilities have been removed from the model.
+This is an evolving research-based application, not a production service with guaranteed output quality or uptime.
 
-## [Finetuning](./FINETUNING.md)
+- Generation speed and memory use depend on the model, hardware, and script. Start short. Very long runs can reach model limits or fail; section recovery does not guarantee seamless joins.
+- Pronunciation, timing, voice similarity, and unwanted sounds can vary. Always listen before publishing. Cross-language quality is not guaranteed.
+- A saved voice sample is a reference for generation, not a newly trained model.
+- Browser microphone permission and physical-device recording quality must be checked on your own computer. Automated tests cannot establish whether a voice sounds right.
+- Audio import currently accepts WAV, not arbitrary music/video formats. Advanced training and the separate upstream realtime model are not part of the Guided Composer's everyday workflow.
+- Unsaved scripts, editor history, and unfinished section jobs are not durable projects. Save or download what you need before restarting.
 
-NOTE: Finetuning is still **very experimental** and not well tested yet!
+## Technical reference and contributing
 
-## FAQ
+- [Inherited upstream documentation and model links](docs/UPSTREAM_README.md)
+- [Fine-tuning guide](FINETUNING.md) (experimental)
+- [Upstream audio examples](EXAMPLES.md)
+- [Automated tests](tests/)
 
-#### Q1: Is this a pretrained model?
-**A:** Yes, it's a pretrained model without any post-training or benchmark-specific optimizations. In a way, this makes VibeVoice very versatile and fun to use.
+Keep new work compatible with the pinned dependencies in `pyproject.toml`. For local Python checks, run `python -m unittest discover -s tests -v` with the project's environment. The JavaScript regression tests use Node's built-in test runner and are in `tests/*_js.cjs`. Passing automated checks does not replace browser testing and listening to real output.
 
-#### Q2: Randomly trigger Sounds / Music / BGM.
-**A:** As you can see from our demo page, the background music or sounds are spontaneous. This means we can't directly control whether they are generated or not. The model is content-aware, and these sounds are triggered based on the input text and the chosen voice prompt.
+## Credits and license
 
-Here are a few things we've noticed:
-*   If the voice prompt you use contains background music, the generated speech is more likely to have it as well. (The Large model is quite stable and effective at this—give it a try on the demo!)
-*   If the voice prompt is clean (no BGM), but the input text includes introductory words or phrases like "Welcome to," "Hello," or "However," background music might still appear.
-*   Speaker voice related, using "Alice" results in random BGM than others (fixed).
-*   In other scenarios, the Large model is more stable and has a lower probability of generating unexpected background music.
+Thanks to **Microsoft** for the original VibeVoice model and implementation, **VibeVoice Community** for maintaining the community codebase, **Juan Pablo Gallego / VoicePowered AI** for the unofficial fine-tuning implementation, and **PsiPi** for shared emotion-control experiments. The [archived upstream README](docs/UPSTREAM_README.md#credits) retains the original credits and notices.
 
-In fact, we intentionally decided not to denoise our training data because we think it's an interesting feature for BGM to show up at just the right moment. You can think of it as a little easter egg we left for you.
-
-#### Q3: Text normalization?
-**A:** We don't perform any text normalization during training or inference. Our philosophy is that a large language model should be able to handle complex user inputs on its own. However, due to the nature of the training data, you might still run into some corner cases.
-
-#### Q4: Singing Capability.
-**A:** Our training data **doesn't contain any music data**. The ability to sing is an emergent capability of the model (which is why it might sound off-key, even on a famous song like 'See You Again'). (The Large model is more likely to exhibit this than the 1.5B).
-
-#### Q5: Some Chinese pronunciation errors.
-**A:** The volume of Chinese data in our training set is significantly smaller than the English data. Additionally, certain special characters (e.g., Chinese quotation marks) may occasionally cause pronunciation issues.
-
-#### Q6: Instability of cross-lingual transfer.
-**A:** The model does exhibit strong cross-lingual transfer capabilities, including the preservation of accents, but its performance can be unstable. This is an emergent ability of the model that we have not specifically optimized. It's possible that a satisfactory result can be achieved through repeated sampling.
-
-## Credits
-
-- Thanks to [Microsoft](https://github.com/microsoft/VibeVoice) for the original VibeVoice implementation.
-- Huge shoutout to [Juan Pablo Gallego](https://github.com/jpgallegoar) from [VoicePowered AI](https://www.voicepowered.ai/) for the unofficial training/fine-tuning code.
-- Thanks to [PsiPi](https://huggingface.co/PsiPi) for sharing an interesting way for emotion control. Details can be found via [discussion #12](https://huggingface.co/microsoft/VibeVoice-1.5B/discussions/12).
-
-## License
-
-The source code and models are licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
-
-Note: Microsoft has removed the original repo and models. This fork is based off of the MIT-licensed code from Microsoft.
+Repository code is provided under the [MIT License](LICENSE), including Microsoft's original copyright notice. Consult each model's own card and distribution terms before downloading or using its weights. This fork does not claim Microsoft endorsement.
