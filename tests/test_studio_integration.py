@@ -188,6 +188,29 @@ class StudioIntegrationTests(unittest.TestCase):
             self.assertEqual(update['choices'], ['alice', 'beta', 'Carter', 'zeta'])
             self.assertNotIn('value', update)
 
+    def test_generate_listener_rejects_repeat_submissions_while_pending(self):
+        interface = self.interface()
+        generate = next(fn for fn in interface.fns.values()
+                        if getattr(fn.fn, '__name__', '') == 'generate_podcast_wrapper')
+        self.assertEqual(generate.trigger_mode, 'once')
+        self.assertEqual(generate.concurrency_limit, 1)
+
+    def test_generation_emits_explicit_terminal_outcome_with_file(self):
+        def generate(**kwargs):
+            yield None, str(self.wav), 'Complete', {}
+        self.demo.generate_podcast_streaming = generate
+        calls = self.callbacks(self.interface())
+        results = list(calls['generate_podcast_wrapper'](*self.args()))
+        self.assertTrue(results[0][-1]['running'])
+        self.assertEqual(results[-1][-1]['completed'], True)
+        self.assertFalse(results[-1][-1]['running'])
+        self.assertEqual(results[-1][1]['value'], str(self.wav))
+        rejected = list(calls['generate_podcast_wrapper'](*self.args('')))[-1]
+        self.assertFalse(rejected[-1]['running'])
+        self.assertFalse(rejected[-1]['completed'])
+        self.assertNotEqual(rejected[-1]['id'], results[-1][-1]['id'])
+        self.assertNotIn('value', rejected[1])
+
     def test_shared_interface_omits_private_operations(self):
         self.demo.share = True
         names = self.callbacks(self.interface())

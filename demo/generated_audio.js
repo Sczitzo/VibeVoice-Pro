@@ -89,6 +89,9 @@ function initGeneratedAudio() {
     let lastFileUrl;
     let waveform = [];
     let waveformRequest;
+    let liveTransfer = null;
+    let awaitingOutcome = false;
+    let completionVersion = 0;
 
     const formatTime = seconds => {
         const whole = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
@@ -128,7 +131,30 @@ function initGeneratedAudio() {
         return liveAudio && source && (liveAudio !== previousAudio || source !== previousSource) ? liveAudio : null;
     }
 
+    function publishPending() {
+        const generate = document.getElementById("generate-audio");
+        if (generate && awaitingOutcome) generate.disabled = true;
+        window.dispatchEvent(new Event("vibevoice-generation-state"));
+    }
+
+    // Protect the server-finished / final-file callback interval too. Script edits
+    // must not enqueue a new run before its predecessor has handed off playback.
+    document.addEventListener("click", event => {
+        if (awaitingOutcome && event.target.closest?.("#generate-audio, button[data-section-command]")) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        }
+    }, {capture: true});
+
+    function rememberLivePosition() {
+        const player = currentLivePlayer();
+        if ((requested || generating) && player && Number.isFinite(player.currentTime)) {
+            liveTransfer = {position: player.currentTime, playing: !paused && player.readyState >= 2};
+        }
+    }
+
     function render() {
+        if (generating) rememberLivePosition();
         const player = generating ? currentLivePlayer() : audio;
         const hasTake = audio.hasAttribute("src");
         const total = !generating && hasTake && Number.isFinite(audio.duration) ? audio.duration : 0;
@@ -136,7 +162,7 @@ function initGeneratedAudio() {
         const progress = total ? Math.min(1, current / total) : 0;
         const label = player && !player.paused && !player.ended ? "Pause" : "Play";
         if (play.textContent !== label) play.textContent = label;
-        play.disabled = generating ? !player || player.readyState < 2 : !hasTake;
+        play.disabled = generating ? !player || player.readyState < 2 : !hasTake || audio.readyState < 1 || (awaitingOutcome && !cancelled);
         seek.disabled = !total;
         seek.value = Math.round(progress * 1000);
         seek.setAttribute("aria-valuetext", formatTime(current) + " of " + formatTime(total));
@@ -144,13 +170,15 @@ function initGeneratedAudio() {
         duration.textContent = generating ? "Live" : formatTime(total);
         title.textContent = generating
             ? (player && player.readyState >= 2 ? "Live audio" : "Generating audio…")
-            : hasTake ? "Last completed take" : "No audio yet";
+            : awaitingOutcome && !cancelled ? "Finishing audio." : hasTake ? "Last completed take" : "No audio yet";
         download.title = generating && hasTake ? "Download last completed take" : "";
-        replay.disabled = clear.disabled = generating || !hasTake;
+        clear.disabled = generating || (awaitingOutcome && !cancelled) || !hasTake;
+        replay.disabled = clear.disabled || audio.readyState < 1;
         drawWaveform(progress);
     }
 
     function finishLive() {
+        rememberLivePosition();
         requested = generating = false;
         silence(liveAudio);
         render();
@@ -159,6 +187,7 @@ function initGeneratedAudio() {
     function syncLive() {
         const next = liveRegion.querySelector("audio");
         if (next !== liveAudio) {
+            rememberLivePosition();
             silence(liveAudio);
             liveAudio = next;
         }
@@ -202,6 +231,7 @@ function initGeneratedAudio() {
     }
 
     play.addEventListener("click", () => {
+        if (play.disabled) return;
         if (generating) {
             const player = currentLivePlayer();
             if (player) {
@@ -227,6 +257,8 @@ function initGeneratedAudio() {
     });
     clear.addEventListener("click", () => {
         if (clear.disabled) return;
+        completionVersion++;
+        liveTransfer = null;
         waveformRequest?.abort();
         waveform = [];
         audio.pause();
@@ -254,40 +286,77 @@ function initGeneratedAudio() {
     }
     audio.addEventListener("play", render);
     window.addEventListener("pagehide", () => {
+        completionVersion++;
         finishLive();
         audio.pause();
     });
 
     window.vibevoicePlayback = {
+        isPending() { return awaitingOutcome; },
         start() {
             finishLive();
+            completionVersion++;
+            liveTransfer = null;
             audio.pause();
             previousAudio = liveRegion.querySelector("audio");
             previousSource = previousAudio?.getAttribute("src") || previousAudio?.currentSrc;
             silence(previousAudio);
             requested = true;
+            awaitingOutcome = true;
+            publishPending();
             cancelled = false;
             paused = false;
         },
         stop() {
             cancelled = true;
+            // Cancellation ends listening immediately, but submission stays locked
+            // until the server reports that the worker has actually finished.
+            publishPending();
+            completionVersion++;
             finishLive();
+            liveTransfer = null;
         },
         acceptExport() {
             finishLive();
+            awaitingOutcome = true;
+            publishPending();
+            completionVersion++;
+            liveTransfer = null;
             cancelled = false;
             requested = false;
         },
+        finish(outcome, file) {
+            if (!outcome || outcome.running) return;
+            if (outcome.completed && !cancelled && this.complete(file)) return;
+            finishLive();
+            liveTransfer = null;
+            awaitingOutcome = false;
+            publishPending();
+            render();
+        },
         complete(file) {
-            if (!file?.url || cancelled) return;
+            if (!file?.url || cancelled) return false;
             let url;
             try {
                 url = new URL(file.url, window.location.href);
             } catch {
-                return;
+                return false;
             }
-            if (url.origin !== window.location.origin || url.href === lastFileUrl) return;
+            if (url.origin !== window.location.origin) return false;
+            if (url.href === lastFileUrl) {
+                finishLive();
+                liveTransfer = null;
+                awaitingOutcome = false;
+                publishPending();
+                render();
+                return true;
+            }
             finishLive();
+            awaitingOutcome = false;
+            publishPending();
+            const transfer = liveTransfer;
+            liveTransfer = null;
+            const version = ++completionVersion;
             lastFileUrl = url.href;
             waveformRequest?.abort();
             const request = new AbortController();
@@ -295,6 +364,23 @@ function initGeneratedAudio() {
             waveform = [];
             audio.pause();
             audio.src = url.href;
+            const resumeCompleted = () => {
+                audio.removeEventListener("loadedmetadata", resumeCompleted);
+                if (version !== completionVersion || cancelled) return;
+                if (transfer) {
+                    const total = Number.isFinite(audio.duration) ? audio.duration : transfer.position;
+                    audio.currentTime = Math.max(0, Math.min(transfer.position, total));
+                    // HTMLMediaElement.play() at the end restarts from zero.
+                    // An exhausted take stays finished until the user explicitly plays again.
+                    if (transfer.playing && audio.currentTime < total) audio.play().then(() => {
+                        if ((version !== completionVersion || cancelled) && audio.src === url.href) audio.pause();
+                        render();
+                    }).catch(render);
+                }
+                render();
+            };
+            audio.addEventListener("loadedmetadata", resumeCompleted, {once: true});
+            if (audio.readyState >= 1) resumeCompleted();
             setDownload(url.href, file.orig_name);
             render();
             readGeneratedWaveform(url.href, request.signal).then(peaks => {
@@ -303,6 +389,7 @@ function initGeneratedAudio() {
                     render();
                 }
             }).catch(() => {});
+            return true;
         },
     };
     setDownload();

@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 import time
+from uuid import uuid4
 from hashlib import sha256
 from html import escape
 from pathlib import Path
@@ -1029,6 +1030,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
         audio_output = gr.Audio(label="Live Audio", type="numpy", streaming=True, autoplay=False,
                                 show_download_button=False, elem_id="live-generated-audio")
         complete_audio_output = gr.File(type="filepath", interactive=False, visible="hidden")
+        generation_outcome = gr.JSON(visible=False)
         completed_take = gr.State(None)
         section_job = gr.State(None)
         streaming_status = gr.Markdown("Generating audio…", visible=False, elem_id="streaming-status")
@@ -1305,10 +1307,10 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
             open_folder.click(open_takes_folder, outputs=take_status, api_name=False, queue=False)
             open_take.click(open_saved_take, take_id, take_file, api_name="open_saved_take", show_api=False, queue=False)
 
-        complete_audio_output.change(
+        generation_outcome.change(
             fn=None,
-            inputs=[complete_audio_output],
-            js="(file) => { window.vibevoicePlayback?.complete(file); return []; }",
+            inputs=[generation_outcome, complete_audio_output],
+            js="(outcome, file) => { window.vibevoicePlayback?.finish(outcome, file); return []; }",
             queue=False,
         )
 
@@ -1380,6 +1382,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                 *(feedback if feedback is not None else (gr.skip(), gr.skip())),
                 completed if completed else gr.skip(), job if job is not None else gr.skip(),
                 panel if panel is not None else gr.skip(),
+                {"id": uuid4().hex, "running": running, "completed": bool(completed)},
             )
 
         def render_sections(job, running=False, note=""):
@@ -1517,19 +1520,27 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
             return "Stopping generation…", gr.update(visible=False), gr.update(interactive=False)
 
         generation_outputs = [audio_output, complete_audio_output, log_output, streaming_status, generate_btn,
-                              stop_btn, generation_feedback, *script_check_outputs, completed_take, section_job, section_panel]
-        generate_btn.click(
+                              stop_btn, generation_feedback, *script_check_outputs, completed_take, section_job, section_panel, generation_outcome]
+        generation_event = generate_btn.click(
             fn=generate_podcast_wrapper,
             inputs=[num_speakers, script_input] + speaker_selections + [cfg_scale, inference_steps, seed, disable_voice_cloning, section_mode],
             outputs=generation_outputs,
             js="(...inputs) => { window.vibevoicePlayback?.start(); return inputs; }",
-            queue=True, show_progress="hidden", concurrency_id="vibevoice-model", concurrency_limit=1,
+            queue=True, trigger_mode="once", show_progress="hidden", concurrency_id="vibevoice-model", concurrency_limit=1,
+        )
+        generation_event.failure(
+            fn=None, js="() => { window.vibevoicePlayback?.finish({running:false, completed:false}, null); }",
+            queue=False,
         )
         if private_features:
             section_mode.change(lambda enabled: gr.update(value="Generate in sections" if enabled else "Generate Audio"),
                                 section_mode, generate_btn, queue=False)
-            section_action.click(section_request, [section_command, section_job], generation_outputs,
+            section_event = section_action.click(section_request, [section_command, section_job], generation_outputs,
                                  queue=True, concurrency_id="vibevoice-model", concurrency_limit=1, api_name=False)
+            section_event.failure(
+                fn=None, js="() => { window.vibevoicePlayback?.finish({running:false, completed:false}, null); }",
+                queue=False,
+            )
 
         stop_btn.click(
             fn=stop_generation_handler,

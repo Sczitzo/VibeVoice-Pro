@@ -7,11 +7,11 @@ const source = fs.readFileSync(path.join(__dirname, '../demo/generated_audio.js'
 const methods = source.slice(source.indexOf('    window.vibevoicePlayback = {'), source.lastIndexOf('    };') + 6);
 
 test('explicit section export after Stop accepts a completed file without enabling live audio', () => {
-    const audio = {pause() {}};
+    const audio = {pause() {}, addEventListener() {}, removeEventListener() {}};
     const sandbox = {
         window: {location: {href: 'http://localhost:7881/', origin: 'http://localhost:7881'}},
-        URL, AbortController, audio, cancelled: false, requested: false, paused: false,
-        finishLive() {}, render() {}, setDownload() {}, silence() {},
+        awaitingOutcome: false, completionVersion: 0, liveTransfer: null, URL, AbortController, audio, cancelled: false, requested: false, paused: false,
+        publishPending() {}, finishLive() {}, render() {}, setDownload() {}, silence() {},
         liveRegion: {querySelector() {return null;}},
         lastFileUrl: null, waveformRequest: null, waveform: [],
         readGeneratedWaveform: () => Promise.resolve([])

@@ -44,7 +44,7 @@ function initScriptCheck() {
         keep.hidden = !label;
         if (label) keep.textContent = "Keep with Speaker " + label;
         const generate = document.getElementById("generate-audio");
-        if (generate) generate.disabled = !!result?.classList.contains("script-check-issue");
+        if (generate) generate.disabled = Boolean(window.vibevoicePlayback?.isPending()) || !!result?.classList.contains("script-check-issue");
 
         if (result && explicitCheck && unchanged(explicitCheck)) {
             explicitCheck = null;
@@ -65,7 +65,7 @@ function initScriptCheck() {
         if (result) result.hidden = true;
         keep.hidden = true;
         const generate = document.getElementById("generate-audio");
-        if (generate) generate.disabled = false;
+        if (generate) generate.disabled = Boolean(window.vibevoicePlayback?.isPending());
         void refresh();
     }
     editor.addEventListener("input", onEdit);
@@ -86,6 +86,8 @@ function initScriptCheck() {
         editor.setRangeText("Speaker " + result.dataset.label + ": ", offset, offset, "end");
         editor.dispatchEvent(new Event("input", { bubbles: true }));
     });
+
+    window.addEventListener("vibevoice-generation-state", () => { void refresh(); });
 
     const observer = new MutationObserver(() => { void refresh(); });
     observer.observe(feedback, { childList: true, subtree: true });

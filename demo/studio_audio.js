@@ -29,6 +29,11 @@ function initStudioAudio() {
         opener.focus();
     });
     document.addEventListener("click", async event => {
+        if (event.target.closest("button[data-section-command]") && window.vibevoicePlayback?.isPending()) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return;
+        }
         if (event.target.closest("#generate-audio, button[data-section-command]")) {
             const live = document.querySelector("#live-generated-audio audio");
             if (live) live.muted = false;
