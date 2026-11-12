@@ -203,6 +203,10 @@ gradio-app .app:has(#guided-composer) {
 #script-heading .script-tools > * { min-width: 0 !important; white-space: nowrap; }
 #script-heading .prose, #speaker-heading .prose { overflow: visible; }
 #script-heading h2, #speaker-heading h2 { white-space: nowrap; }
+/* Gradio's inline overflow:auto makes short heading blocks show scroll arrows. */
+#composer-script-label, #speaker-heading > .block {
+    overflow: visible !important;
+}
 #word-count { color: var(--muted); font-size: 13px; white-space: nowrap; }
 
 #editor-frame {

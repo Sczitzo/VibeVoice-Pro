@@ -11,6 +11,7 @@ const audio = {
 };
 
 function harness() {
+    const sourceModes = {};
     const inputFile = Object.assign(new EventTarget(), {files: [], focus() {}});
     const importStart = Object.assign(new EventTarget(), {valueAsNumber: 0});
     const importEnd = Object.assign(new EventTarget(), {valueAsNumber: 1});
@@ -60,7 +61,7 @@ function harness() {
             "audio": preview, "[data-recording-status]": status,
             "[data-microphone]": microphone, "[data-refresh]": refresh,
             "[data-microphone-info]": microphoneInfo, "[data-level]": level,
-            "[data-level-message]": levelMessage, "#voice-import-file": inputFile,
+            "[data-level-message]": levelMessage, ".voice-modes": sourceModes, "#voice-import-file": inputFile,
             "[data-import-range]": importRange, "[data-import-start]": importStart,
             "[data-import-end]": importEnd})[selector]
     });
@@ -144,7 +145,7 @@ function harness() {
         frames.clear();
         callbacks.forEach(callback => callback());
     };
-    return {context, inputFile, capture, record, stop, pause, open, close, cancel, root, elapsed, save, preview, status, metrics, window,
+    return {context, sourceModes, retake: controls["[data-retake]"], inputFile, capture, record, stop, pause, open, close, cancel, root, elapsed, save, preview, status, metrics, window,
         nameVoice: controls["[data-name]"], readingTitle, done, savedDownload,
         microphone, microphoneInfo, refresh, level, levelMessage, tick, frames, track,
         prepare: () => window.vibevoiceRecorder.prepareSave([null, "My voice", "Other voice", null, null])};
@@ -482,4 +483,27 @@ test("hung import decoder closes and allows a new WAV import", async () => {
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(rig.metrics.decodes, 1);
     assert.equal(rig.metrics.closed, 2);
+});
+
+
+test("source choices stay out of recording listen and save then return at initial step", async () => {
+    const rig = harness();
+    rig.open.dispatchEvent(new Event("click"));
+    assert.equal(rig.sourceModes.hidden, false);
+    rig.record.dispatchEvent(new Event("click"));
+    assert.equal(rig.sourceModes.hidden, true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(rig.root.dataset.stage, "record");
+    assert.equal(rig.sourceModes.hidden, true);
+    rig.stop.dispatchEvent(new Event("click"));
+    assert.equal(rig.root.dataset.stage, "listen");
+    assert.equal(rig.sourceModes.hidden, true);
+    rig.close.dispatchEvent(new Event("click"));
+    rig.open.dispatchEvent(new Event("click"));
+    assert.equal(rig.sourceModes.hidden, true);
+    rig.nameVoice.dispatchEvent(new Event("click"));
+    assert.equal(rig.sourceModes.hidden, true);
+    rig.retake.dispatchEvent(new Event("click"));
+    assert.equal(rig.root.dataset.stage, "microphone");
+    assert.equal(rig.sourceModes.hidden, false);
 });

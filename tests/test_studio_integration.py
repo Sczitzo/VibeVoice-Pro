@@ -170,6 +170,24 @@ class StudioIntegrationTests(unittest.TestCase):
                     if isinstance(child, ast.Constant) and isinstance(child.value, str):
                         self.assertTrue(child.value.isascii(), repr(child.value))
 
+    def test_voice_choices_are_sorted_initially_and_after_save_without_reassignment(self):
+        self.demo.available_voices = {'zeta': 'z.wav', 'Carter': 'c.wav', 'alice': 'a.wav'}
+        interface = self.interface()
+        dropdowns = [component for component in interface.blocks.values()
+                     if isinstance(component, app.gr.Dropdown)]
+        voices = [component for component in dropdowns if ('zeta', 'zeta') in component.choices]
+        self.assertEqual(len(voices), 4)
+        for component in voices:
+            self.assertEqual([choice[0] for choice in component.choices], ['alice', 'Carter', 'zeta'])
+        def save(_audio, name, **kwargs):
+            self.demo.available_voices[name] = str(self.wav)
+            return name, str(self.wav)
+        self.demo.save_recorded_voice = save
+        updates = self.callbacks(interface)['save_recording']('fake.wav', 'beta')
+        for update in updates[:4]:
+            self.assertEqual(update['choices'], ['alice', 'beta', 'Carter', 'zeta'])
+            self.assertNotIn('value', update)
+
     def test_shared_interface_omits_private_operations(self):
         self.demo.share = True
         names = self.callbacks(self.interface())

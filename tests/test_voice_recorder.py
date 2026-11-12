@@ -38,6 +38,14 @@ class VoiceRecorderTests(unittest.TestCase):
         reloaded.setup_voice_presets()
         self.assertEqual(reloaded.available_voices[name], str(path))
 
+    def test_voice_library_refresh_is_case_insensitive_alphabetical(self):
+        for name in ('zeta', 'beta', 'Alpha'):
+            sf.write(self.demo.voices_dir / (name + '.wav'), self.samples, 24000, subtype='PCM_16')
+        self.demo.setup_voice_presets()
+        self.assertEqual(list(self.demo.available_voices), ['Alpha', 'beta', 'Existing', 'zeta'])
+        self.demo.save_recorded_voice((24000, self.samples), 'delta')
+        self.assertEqual(list(self.demo.available_voices), ['Alpha', 'beta', 'delta', 'Existing', 'zeta'])
+
     def test_stereo_recording_keeps_both_channels_and_amplitudes(self):
         stereo = np.column_stack((self.samples, -self.samples))
         _, path = self.demo.save_recorded_voice((24000, stereo), "Stereo voice")

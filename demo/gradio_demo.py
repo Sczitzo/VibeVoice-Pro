@@ -303,7 +303,7 @@ class VibeVoiceDemo:
             self.voice_presets[name] = full_path
 
         # Sort the voice presets alphabetically by name for better UI
-        self.voice_presets = dict(sorted(self.voice_presets.items()))
+        self.voice_presets = dict(sorted(self.voice_presets.items(), key=lambda item: item[0].casefold()))
 
         # Filter out voices that don't exist (this is now redundant but kept for safety)
         self.available_voices = {
@@ -984,7 +984,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                         """, padding=False)
                         num_speakers = gr.Radio([1, 2, 3, 4], value=2, label="Number of Speakers", elem_id="speaker-count")
                     with gr.Column(elem_id="voice-assignments"):
-                        available_speaker_names = list(demo_instance.available_voices)
+                        available_speaker_names = sorted(demo_instance.available_voices, key=str.casefold)
                         default_speakers = ["en-Alice_woman", "en-Carter_man", "en-Frank_man", "en-Maya_woman"]
                         speaker_selections = []
                         for index, default_voice in enumerate(default_speakers):
@@ -1210,7 +1210,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                     saved_name, saved_path = demo_instance.save_recorded_voice(audio, name, start, end)
             except gr.Error as error:
                 return unchanged + [error.message, empty_file, False]
-            choices = list(demo_instance.available_voices)
+            choices = sorted(demo_instance.available_voices, key=str.casefold)
             updates = [gr.update(choices=choices) for _ in speaker_selections]
             return updates + [
                 f"Saved **{saved_name}.wav**. Choose it from any speaker dropdown.",

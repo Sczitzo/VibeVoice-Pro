@@ -95,6 +95,7 @@ function initVoiceRecorder() {
     let importLoading = false;
     let rangePlayer = null;
     const modes = [...root.querySelectorAll("[data-voice-mode]")];
+    const sourceModes = root.querySelector(".voice-modes");
     const inputFile = root.querySelector("#voice-import-file");
     const range = root.querySelector("[data-import-range]");
     const start = root.querySelector("[data-import-start]");
@@ -368,6 +369,9 @@ function initVoiceRecorder() {
 
     function updateControls() {
         const locked = busy || savePending;
+        // Source choice belongs at the initial step, not over an active or retained take.
+        if (sourceModes) sourceModes.hidden = waitingPermission ||
+            ["record", "listen", "save"].includes(root.dataset.stage);
         record.disabled = locked || recorder !== null;
         stop.disabled = busy || recorder === null;
         pause.disabled = stop.disabled;
