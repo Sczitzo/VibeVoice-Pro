@@ -763,7 +763,7 @@ gradio-app .app:has(#guided-composer) {
         left: 12px;
         z-index: 2;
         padding-inline: 7px !important;
-        background: var(--surface);
+        background: transparent;
     }
     #speaker-heading .speaker-heading-label {
         position: absolute;
@@ -771,7 +771,7 @@ gradio-app .app:has(#guided-composer) {
         left: 12px;
         z-index: 2;
         padding-inline: 7px;
-        background: var(--surface);
+        background: transparent;
     }
     #guided-composer :is(#script-heading, #speaker-heading) h2 { font-size: 20px; }
     #script-heading, #speaker-heading, #script-heading .script-tools { min-height: 36px; }
