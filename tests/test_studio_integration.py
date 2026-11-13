@@ -195,9 +195,12 @@ class StudioIntegrationTests(unittest.TestCase):
             self.assertNotIn('value', update)
         refresh = next(fn for fn in interface.fns.values()
                        if getattr(fn.fn, '__name__', '') == 'refresh_voice_choices')
-        self.assertEqual({event for _, event in refresh.targets}, {'load', 'focus'})
-        self.assertEqual(len(refresh.targets), 5)
-        self.assertEqual(refresh.fn(), updates[:4])
+        self.assertEqual({event for _, event in refresh.targets}, {'load', 'click'})
+        self.assertEqual(refresh.fn(['alice', 'Carter', 'zeta']), updates[:6])
+        self.assertEqual(refresh.fn(updates[4]), [app.gr.skip()] * 6)
+        cleared = refresh.fn(['alice', 'Carter', 'zeta', 'Removed'], 'Removed', 'Carter')
+        self.assertIsNone(cleared[0]['value'])
+        self.assertNotIn('value', cleared[1])
 
     def test_generate_listener_rejects_repeat_submissions_while_pending(self):
         interface = self.interface()
@@ -274,7 +277,7 @@ class StudioIntegrationTests(unittest.TestCase):
     def test_shared_interface_omits_private_operations(self):
         self.demo.share = True
         names = self.callbacks(self.interface())
-        for name in ('save_recording', 'save_completed_take', 'open_saved_take', 'section_request'):
+        for name in ('save_recording', 'apply_voice_action', 'save_completed_take', 'open_saved_take', 'section_request'):
             self.assertNotIn(name, names)
 
     def test_compact_interface_keeps_studio_controls_outside_main_layout(self):

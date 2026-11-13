@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -81,6 +82,7 @@ class ScriptTurnTests(unittest.TestCase):
 class GenerationRecoveryTests(unittest.TestCase):
     def setUp(self):
         self.demo = VibeVoiceDemo.__new__(VibeVoiceDemo)
+        self.demo.voice_lock = threading.Lock()
         self.demo.inference_steps = 10
         self.demo.loaded_adapter_root = None
         self.demo.is_generating = False
@@ -168,15 +170,15 @@ class GenerationRecoveryTests(unittest.TestCase):
         self.addCleanup(interface.close)
         save_recording = next(
             block.fn for block in interface.fns.values()
-            if block.fn.__name__ == "save_recording"
+            if getattr(block.fn, "__name__", None) == "save_recording"
         )
         result = save_recording(None, "My voice")
-        self.assertIn("try Save Voice again", result[4])
+        self.assertIn("try Save Voice again", result[-3])
         self.assertFalse(result[-1])
         for update in result[:4]:
             self.assertNotIn("value", update)
             self.assertNotIn("visible", update)
-        self.assertIsNone(result[5]["value"])
+        self.assertIsNone(result[-2]["value"])
 
     def test_saving_adds_a_library_voice_without_reassigning_speakers(self):
         interface = create_demo_interface(self.demo)
@@ -189,13 +191,13 @@ class GenerationRecoveryTests(unittest.TestCase):
         self.demo.save_recorded_voice = save
         save_recording = next(
             block.fn for block in interface.fns.values()
-            if block.fn.__name__ == "save_recording"
+            if getattr(block.fn, "__name__", None) == "save_recording"
         )
         result = save_recording("upload.wav", "Library voice")
         self.assertTrue(all("value" not in update for update in result[:4]))
         self.assertTrue(all("Library voice" in update["choices"] for update in result[:4]))
-        self.assertEqual(result[5]["value"], "recording.wav")
-        self.assertNotIn("visible", result[5])
+        self.assertEqual(result[-2]["value"], "recording.wav")
+        self.assertNotIn("visible", result[-2])
         self.assertTrue(result[-1])
 
     def test_stop_during_voice_loading_preserves_result_contract(self):

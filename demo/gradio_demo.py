@@ -337,6 +337,50 @@ class VibeVoiceDemo:
             print(f"Error reading audio {audio_path}: {e}")
             return np.array([])
 
+    def saved_voice_names(self):
+        recorded = getattr(self, "voices_dir", Path()) / "recorded"
+        return [name for name, path in self.available_voices.items()
+                if Path(path).parent == recorded and Path(path).suffix.lower() == ".wav"]
+
+    def change_saved_voice(self, name, restore_from=None):
+        if getattr(self, "share", False):
+            raise gr.Error("Saved voices can only be removed on this computer.")
+        recorded = self.voices_dir.resolve() / "recorded"
+        trash = recorded / ".trash"
+        with self.voice_lock:
+            if recorded.resolve() != recorded or trash.resolve() != trash:
+                raise gr.Error("The saved voice folder could not be verified.")
+            if restore_from is None:
+                if name not in self.saved_voice_names():
+                    raise gr.Error("That saved voice is no longer available.")
+                source = Path(self.available_voices[name]).absolute()
+                destination = trash / uuid4().hex / source.name
+            else:
+                source = restore_from
+                destination = recorded / f"{name}.wav"
+                if destination.parent != recorded or destination.exists() or destination.is_symlink() or any(
+                    voice.casefold() == name.casefold() for voice in self.available_voices
+                ):
+                    raise gr.Error("A voice with that name already exists. The removed recording is still in recovery.")
+            source_root = source.parent if restore_from is None else source.parent.parent
+            if source_root != (recorded if restore_from is None else trash) or source.resolve() != source:
+                raise gr.Error("That recording could not be verified.")
+            try:
+                if restore_from is None:
+                    destination.parent.mkdir(parents=True)
+                source.rename(destination)
+            except OSError as error:
+                raise gr.Error("Could not move the recording. Try again.") from error
+            # Update the index only after the move succeeds, without rescanning the library.
+            updated = dict(self.available_voices)
+            if restore_from is None:
+                del updated[name]
+            else:
+                updated[name] = str(destination)
+            self.available_voices = updated
+            self.voice_presets = updated.copy()
+            return destination
+
     def save_recorded_voice(self, audio, voice_name: str, start=None, end=None):
         if getattr(self, "share", False):
             raise gr.Error("Create Voice is available on this computer only.")
@@ -445,12 +489,6 @@ class VibeVoiceDemo:
             choices = [speaker_1, speaker_2, speaker_3, speaker_4]
             selected_speakers = [choices[slot] for slot in check.voice_slots]
 
-            # Validate speaker selections
-            for slot, speaker in zip(check.voice_slots, selected_speakers):
-                if not speaker or speaker not in self.available_voices:
-                    self.is_generating = False
-                    raise gr.Error(f"Error: Please select a valid speaker for Speaker {slot+1}.")
-
             voice_cloning_enabled = not disable_voice_cloning
 
             # Resolve per-run parameters
@@ -495,19 +533,18 @@ class VibeVoiceDemo:
                 yield None, None, "🛑 Generation stopped by user", gr.update(visible=False)
                 return
 
-            # Load voice samples when voice cloning is enabled
-            voice_samples = None
-            if voice_cloning_enabled:
-                voice_samples = []
-                for speaker_name in selected_speakers:
-                    audio_path = self.available_voices[speaker_name]
-                    audio_data = self.read_audio(audio_path)
-                    if len(audio_data) == 0:
-                        self.is_generating = False
-                        raise gr.Error(f"Error: Failed to load audio for {speaker_name}")
-                    voice_samples.append(audio_data)
-
-            # log += f"✅ Loaded {len(voice_samples)} voice samples\n"
+            # Keep recordings in place while this run reads them.
+            voice_samples = [] if voice_cloning_enabled else None
+            with self.voice_lock:
+                for slot, speaker in zip(check.voice_slots, selected_speakers):
+                    audio_path = self.available_voices.get(speaker)
+                    if not audio_path:
+                        raise gr.Error(f"Choose an available voice for Speaker {slot + 1}.")
+                    if voice_samples is not None:
+                        audio_data = self.read_audio(audio_path)
+                        if len(audio_data) == 0:
+                            raise gr.Error(f"Error: Failed to load audio for {speaker}")
+                        voice_samples.append(audio_data)
 
             # Check for stop signal
             if stopped():
@@ -923,12 +960,17 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
     demo_dir = Path(__file__).parent
     recorder_js = (demo_dir / "voice_recorder.js").read_text(encoding="utf-8")
     browser_js = "\n".join((recorder_js, *((demo_dir / name).read_text(encoding="utf-8")
-                                         for name in ("composer.js", "script_check.js", "generated_audio.js", "studio_audio.js"))))
+                                         for name in ("composer.js", "voice_menu.js", "script_check.js", "generated_audio.js", "studio_audio.js"))))
     css = (demo_dir / "eucalyptus.css").read_text(encoding="utf-8")
     theme = gr.themes.Base(primary_hue=gr.themes.colors.teal, font=["Inter", "Segoe UI", "sans-serif"])
     private_features = not getattr(demo_instance, "share", False)
     takes = SavedTakes(takes_directory()) if private_features else None
-    recorder_setup = "initVoiceRecorder();" if private_features else "document.getElementById('open-voice-recorder').hidden = true;"
+    recorder_setup = "initVoiceRecorder();initVoiceMenu();" if private_features else "document.getElementById('open-voice-recorder').hidden = true;"
+
+    def render_saved_voice_names():
+        names = escape(json.dumps(demo_instance.saved_voice_names()), quote=True)
+        return f'<span data-saved-voice-names="{names}"></span>'
+
     with AudioStreamBlocks(title="VibeVoice", theme=theme, css=css,
                    js="() => {" + browser_js + "\n" + recorder_setup + "initComposer();initScriptCheck();initGeneratedAudio();initStudioAudio();}") as interface:
         with gr.Column(elem_id="guided-composer"):
@@ -1007,6 +1049,23 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                         <button type="button" class="composer-button" id="open-advanced-settings" aria-haspopup="dialog">Advanced Settings</button>
                         <button type="button" class="composer-button mobile-only" id="back-to-script">Back to Script</button>
                     """, padding=False, elem_id="speaker-actions")
+                    if private_features:
+                        gr.HTML("""
+                            <div id="voice-menu-feedback" hidden>
+                                <span role="status"></span>
+                                <button type="button" class="composer-button" hidden>Undo</button>
+                            </div>
+                            <span id="voice-menu-help" hidden>Use the arrow keys to highlight a saved voice.
+                                Press Shift+F10 to reveal Delete, then Enter to remove it or Escape to cancel.</span>
+                            <span id="voice-menu-announcement" class="voice-menu-sr-only" role="status"></span>
+                        """, padding=False, elem_id="voice-menu-status")
+                        voice_catalog = gr.HTML(render_saved_voice_names(), visible="hidden", elem_id="voice-menu-catalog")
+                        voice_command = gr.Textbox(visible="hidden", elem_id="voice-menu-command")
+                        voice_action = gr.Button(visible="hidden", elem_id="voice-menu-submit")
+                        voice_result = gr.HTML(visible="hidden", elem_id="voice-menu-result")
+                        undo_voice = gr.State()
+                        refresh_voices = gr.Button(visible="hidden", elem_id="refresh-voices")
+                        known_voices = gr.State(available_speaker_names)
 
             with gr.Row(elem_id="composer-transport"):
                 gr.HTML("""
@@ -1203,12 +1262,20 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
             saved_voice_file = gr.File(interactive=False, visible="hidden")
             voice_saved = gr.Checkbox(value=False, visible=False)
 
-        def refresh_voice_choices():
+        voice_output_count = len(speaker_selections) + 2
+
+        def refresh_voice_choices(previous=None, *selections):
             choices = sorted(demo_instance.available_voices, key=str.casefold)
-            return [gr.update(choices=choices) for _ in speaker_selections]
+            if choices == previous:
+                return [gr.skip()] * voice_output_count
+            updates = [gr.update(choices=choices) for _ in speaker_selections]
+            for index, selected in enumerate(selections):
+                if selected and selected not in choices:
+                    updates[index]['value'] = None
+            return updates + [choices, render_saved_voice_names()]
 
         def save_recording(audio, name, start=None, end=None):
-            unchanged = [gr.skip() for _ in speaker_selections]
+            unchanged = [gr.skip()] * voice_output_count
             empty_file = gr.update(value=None)
             if audio is None:
                 return unchanged + [
@@ -1227,15 +1294,49 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
             ]
 
         if private_features:
+            voice_outputs = speaker_selections + [known_voices, voice_catalog]
             gr.on(
-                triggers=[interface.load, *(speaker.focus for speaker in speaker_selections)],
-                fn=refresh_voice_choices, outputs=speaker_selections,
+                triggers=[interface.load, refresh_voices.click],
+                fn=refresh_voice_choices, inputs=[known_voices] + speaker_selections, outputs=voice_outputs,
+                preprocess=False,
                 queue=False, api_name=False, show_progress="hidden",
             )
+
+            def apply_voice_action(command, undo, *selections):
+                unchanged = [gr.skip()] * voice_output_count
+                def render_result(result):
+                    payload = escape(json.dumps(result), quote=True)
+                    return f'<span data-voice-result="{payload}" data-update="{uuid4().hex}"></span>'
+
+                try:
+                    if command == "undo" and undo:
+                        name, path = undo
+                        demo_instance.change_saved_voice(name, restore_from=path)
+                        result = {"message": f"{name} restored.", "undo": False, "changed": True}
+                        next_undo = None
+                    elif isinstance(command, str) and command.startswith("delete:"):
+                        name = command.removeprefix("delete:")
+                        path = demo_instance.change_saved_voice(name)
+                        slots = [str(i) for i, choice in enumerate(selections, 1) if choice == name]
+                        result = {"message": f"{name} removed.", "undo": True, "changed": True, "slots": slots}
+                        next_undo = (name, path)
+                    else:
+                        raise gr.Error("There is no voice removal to undo.")
+                except gr.Error as error:
+                    result = {"message": error.message, "undo": bool(undo), "error": True}
+                    return unchanged + [gr.skip(), render_result(result)]
+                return refresh_voice_choices(None, *selections) + [next_undo, render_result(result)]
+
+            voice_event = voice_action.click(
+                apply_voice_action, inputs=[voice_command, undo_voice] + speaker_selections,
+                outputs=voice_outputs + [undo_voice, voice_result], preprocess=False,
+                queue=False, api_name=False, show_progress="hidden",
+            )
+            voice_event.failure(fn=None, js="() => window.vibevoiceVoiceMenu.finish()", queue=False)
             save_event = save_voice_btn.click(
                 fn=save_recording,
                 inputs=[voice_recording, voice_name, import_start, import_end],
-                outputs=speaker_selections + [voice_save_status, saved_voice_file, voice_saved],
+                outputs=voice_outputs + [voice_save_status, saved_voice_file, voice_saved],
                 js="async (...inputs) => await window.vibevoiceRecorder.prepareSave(inputs)",
                 queue=False,
             )

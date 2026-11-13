@@ -137,6 +137,26 @@ function initComposer() {
 
     panel.addEventListener("click", () => showSpeakers(shell.dataset.panel !== "speakers"));
     document.getElementById("back-to-script").addEventListener("click", () => showSpeakers(false));
+    const refreshVoices = document.getElementById("refresh-voices");
+    if (refreshVoices && typeof BroadcastChannel === "function") {
+        const voiceUpdates = new BroadcastChannel("vibevoice-saved-voices");
+        const assignments = document.getElementById("voice-assignments");
+        let refreshPending = false;
+        voiceUpdates.addEventListener("message", () => {
+            refreshPending = Boolean(assignments.querySelector('[aria-expanded="true"]'));
+            if (!refreshPending) refreshVoices.click();
+        });
+        assignments.addEventListener("focusout", () => {
+            if (refreshPending) {
+                refreshPending = false;
+                refreshVoices.click();
+            }
+        });
+        document.getElementById("voice-recorder").addEventListener("vibevoice-voice-saved", () => {
+            voiceUpdates.postMessage("saved");
+        });
+        assignments.addEventListener("vibevoice-voices-changed", () => voiceUpdates.postMessage("changed"));
+    }
     shell.querySelector(".composer-skip").addEventListener("click", event => {
         event.preventDefault();
         showSpeakers(false);

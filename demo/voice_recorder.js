@@ -685,6 +685,7 @@ function initVoiceRecorder() {
             if (failed) showStatus("Could not save. Your recording is still available. Try Save Voice again.", true);
             else if (status.textContent === "Saving your recording…") showStatus("");
             if (saved === true) {
+                root.dispatchEvent(new Event("vibevoice-voice-saved"));
                 savedDownload.hidden = !file?.url;
                 if (file?.url) {
                     savedDownload.href = file.url;

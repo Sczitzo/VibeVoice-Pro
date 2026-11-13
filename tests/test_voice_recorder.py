@@ -24,6 +24,35 @@ class VoiceRecorderTests(unittest.TestCase):
         sf.write(self.existing, self.samples, 24000, subtype="PCM_16")
         self.demo.available_voices = {"Existing": str(self.existing)}
 
+    def test_remove_and_restore_preserve_the_recording_and_built_in_voice(self):
+        name, path = self.demo.save_recorded_voice((24000, self.samples), "Studio sample")
+        original = path.read_bytes()
+        with self.assertRaisesRegex(gr.Error, "no longer available"):
+            self.demo.change_saved_voice("Existing")
+        self.assertTrue(self.existing.is_file())
+
+        recovery = self.demo.change_saved_voice(name)
+        self.assertEqual(recovery.name, path.name)
+        self.assertFalse(path.exists())
+        self.assertEqual(recovery.read_bytes(), original)
+        self.demo.setup_voice_presets()
+        self.assertNotIn(name, self.demo.available_voices)
+
+        restored = self.demo.change_saved_voice(name, restore_from=recovery)
+        self.assertEqual(restored, path)
+        self.assertEqual(restored.read_bytes(), original)
+        self.assertIn(name, self.demo.saved_voice_names())
+
+    def test_undo_never_overwrites_a_new_recording(self):
+        name, _ = self.demo.save_recorded_voice((24000, self.samples), "Studio sample")
+        recovery = self.demo.change_saved_voice(name)
+        _, replacement = self.demo.save_recorded_voice((24000, -self.samples), name)
+        replacement_bytes = replacement.read_bytes()
+        with self.assertRaisesRegex(gr.Error, "already exists"):
+            self.demo.change_saved_voice(name, restore_from=recovery)
+        self.assertEqual(replacement.read_bytes(), replacement_bytes)
+        self.assertTrue(recovery.is_file())
+
     def test_recording_is_saved_as_pcm16_wav_and_loaded_as_a_voice(self):
         name, path = self.demo.save_recorded_voice((48000, self.samples), "My voice")
         self.assertEqual(name, "My voice")

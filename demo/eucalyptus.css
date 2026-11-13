@@ -380,6 +380,57 @@ gradio-app .app:has(#guided-composer) {
 }
 #composer-speakers .speaker-item .label-wrap .icon { display: none; }
 
+#composer-speakers [data-testid="dropdown-option"]:has(.voice-row-action) {
+    align-items: center;
+    padding-block: 0;
+}
+#guided-composer .voice-row-action {
+    flex: 0 0 44px;
+    display: inline-grid;
+    place-items: center;
+    margin-inline-start: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+}
+#guided-composer .voice-row-action svg { width: 15px; height: 15px; pointer-events: none; }
+#guided-composer .voice-row-action[data-action="trash"] { color: #9e2e28; background: #f8e5e3; }
+#guided-composer .voice-row-action[data-action="trash"]:hover { background: #f2d0cd; }
+#composer-speakers [data-testid="dropdown-option"]:has(.voice-row-action[data-action="trash"]) {
+    background: var(--surface);
+    outline: 1px solid var(--outline);
+    outline-offset: -1px;
+}
+#voice-menu-status, #voice-menu-status > .html-container { display: contents; }
+#voice-menu-feedback:not([hidden]) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 8px 4px 12px;
+    min-height: 44px;
+    border-radius: 8px;
+    background: #e2f0e8;
+    color: var(--ink);
+    font-size: 13px;
+}
+#voice-menu-feedback.voice-menu-error { background: #f8e5e3; color: #8e2722; }
+#voice-menu-feedback .composer-button {
+    border: 0;
+    background: transparent;
+    text-decoration: underline;
+}
+.voice-menu-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+}
+
 #guided-composer :is(.tone-1, [data-speaker="1"]) { --tone: #d9eee5; --tone-ink: #1e5646; --tone-hover: #cce9dc; }
 #guided-composer :is(.tone-2, [data-speaker="2"]) { --tone: #dcebf0; --tone-ink: #244d5b; --tone-hover: #cce4ed; }
 #guided-composer :is(.tone-3, [data-speaker="3"]) { --tone: #ece5f1; --tone-ink: #534165; --tone-hover: #e4d8ed; }
