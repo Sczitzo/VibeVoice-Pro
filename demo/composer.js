@@ -141,17 +141,51 @@ function initComposer() {
     if (refreshVoices && typeof BroadcastChannel === "function") {
         const voiceUpdates = new BroadcastChannel("vibevoice-saved-voices");
         const assignments = document.getElementById("voice-assignments");
+        const pickerSelector = 'input[aria-controls="dropdown-options"]';
+        const catalog = document.getElementById("voice-menu-catalog");
         let refreshPending = false;
+        let closedPicker;
+        let reopen = false;
+
+        function refreshClosedMenus() {
+            if (!refreshPending || assignments.querySelector(`${pickerSelector}[aria-expanded="true"]`)) return;
+            refreshPending = false;
+            const focused = document.activeElement;
+            closedPicker = assignments.contains(focused) && focused.matches(pickerSelector) ? focused : null;
+            reopen = false;
+            refreshVoices.click();
+        }
         voiceUpdates.addEventListener("message", () => {
-            refreshPending = Boolean(assignments.querySelector('[aria-expanded="true"]'));
-            if (!refreshPending) refreshVoices.click();
+            refreshPending = true;
+            refreshClosedMenus();
         });
-        assignments.addEventListener("focusout", () => {
-            if (refreshPending) {
-                refreshPending = false;
-                refreshVoices.click();
+        new MutationObserver(refreshClosedMenus).observe(assignments, {
+            subtree: true, childList: true, attributes: true, attributeFilter: ["aria-expanded"],
+        });
+        assignments.addEventListener("keydown", event => {
+            if (event.target !== closedPicker) return;
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                reopen = true;
+                event.preventDefault();
+                event.stopImmediatePropagation();
             }
-        });
+            if (event.key === "Escape") reopen = false;
+        }, true);
+        new MutationObserver(() => {
+            const picker = closedPicker;
+            if (!picker) return;
+            // Gradio filters updated choices by the selected label while focused.
+            // Wait for the updated choices before using Gradio's focus handler to restore its full list.
+            setTimeout(() => {
+                if (closedPicker !== picker) return;
+                closedPicker = null;
+                if (document.activeElement !== picker) return;
+                picker.dispatchEvent(new FocusEvent("focus"));
+                if (!reopen) {
+                    picker.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+                }
+            });
+        }).observe(catalog, {subtree: true, childList: true});
         document.getElementById("voice-recorder").addEventListener("vibevoice-voice-saved", () => {
             voiceUpdates.postMessage("saved");
         });

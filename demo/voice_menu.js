@@ -5,6 +5,7 @@ function initVoiceMenu() {
     const status = feedback.querySelector('[role="status"]');
     const undo = feedback.querySelector("button");
     const announcement = document.getElementById("voice-menu-announcement");
+    const savedVoices = () => JSON.parse(catalog.querySelector('[data-saved-voice-catalog]')?.dataset.savedVoiceCatalog || '{}');
     const inputs = 'input[aria-controls="dropdown-options"]';
     const options = '[data-testid="dropdown-option"]';
     const icons = {
@@ -15,7 +16,11 @@ function initVoiceMenu() {
     let request;
 
     function paint() {
-        const names = new Set(JSON.parse(catalog.querySelector('[data-saved-voice-names]')?.dataset.savedVoiceNames || '[]'));
+        const voices = savedVoices();
+        if (armed && voices[armed.name] !== armed.revision) {
+            armed = undefined;
+            announcement.textContent = "";
+        }
         for (const input of assignments.querySelectorAll(inputs)) {
             input.setAttribute("aria-describedby", "voice-menu-help");
             input.placeholder = "Choose a voice";
@@ -25,7 +30,7 @@ function initVoiceMenu() {
             const item = row.closest(".speaker-item");
             const open = item.querySelector(inputs)?.getAttribute("aria-expanded") === "true";
             let button = row.querySelector(".voice-row-action");
-            if (!open || !names.has(name)) {
+            if (!open || !Object.hasOwn(voices, name)) {
                 button?.remove();
                 continue;
             }
@@ -57,7 +62,9 @@ function initVoiceMenu() {
 
     function arm(row) {
         const name = row.getAttribute("aria-label");
-        armed = {item: row.closest(".speaker-item"), name};
+        const revision = savedVoices()[name];
+        if (!revision) return;
+        armed = {item: row.closest(".speaker-item"), name, revision};
         announcement.textContent = `Delete ${name}. Press Enter to remove or Escape to cancel.`;
         paint();
     }
@@ -97,8 +104,8 @@ function initVoiceMenu() {
         if (!button || request) return;
         event.preventDefault();
         event.stopPropagation();
-        if (button.dataset.action === "trash") {
-            submit(`delete:${button.dataset.voice}`, button.closest(".speaker-item").querySelector(inputs));
+        if (button.dataset.action === "trash" && armed) {
+            submit(`delete:${armed.revision}:${armed.name}`, armed.item.querySelector(inputs));
         } else arm(button.closest(options));
     }, true);
     assignments.addEventListener("keydown", event => {
@@ -110,7 +117,7 @@ function initVoiceMenu() {
             if (!row?.querySelector(".voice-row-action") || request) return;
             arm(row);
         } else if (armed?.item === item && event.key === "Enter" && !request) {
-            submit(`delete:${armed.name}`, input);
+            submit(`delete:${armed.revision}:${armed.name}`, input);
         } else if (armed?.item === item && event.key === "Escape") {
             disarm();
         } else {

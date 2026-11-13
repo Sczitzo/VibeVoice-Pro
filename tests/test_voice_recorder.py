@@ -31,7 +31,7 @@ class VoiceRecorderTests(unittest.TestCase):
             self.demo.change_saved_voice("Existing")
         self.assertTrue(self.existing.is_file())
 
-        recovery = self.demo.change_saved_voice(name)
+        recovery = self.demo.change_saved_voice(name, revision=self.demo.saved_voice_catalog()[name])
         self.assertEqual(recovery.name, path.name)
         self.assertFalse(path.exists())
         self.assertEqual(recovery.read_bytes(), original)
@@ -41,11 +41,11 @@ class VoiceRecorderTests(unittest.TestCase):
         restored = self.demo.change_saved_voice(name, restore_from=recovery)
         self.assertEqual(restored, path)
         self.assertEqual(restored.read_bytes(), original)
-        self.assertIn(name, self.demo.saved_voice_names())
+        self.assertIn(name, self.demo.saved_voice_catalog())
 
     def test_undo_never_overwrites_a_new_recording(self):
         name, _ = self.demo.save_recorded_voice((24000, self.samples), "Studio sample")
-        recovery = self.demo.change_saved_voice(name)
+        recovery = self.demo.change_saved_voice(name, revision=self.demo.saved_voice_catalog()[name])
         _, replacement = self.demo.save_recorded_voice((24000, -self.samples), name)
         replacement_bytes = replacement.read_bytes()
         with self.assertRaisesRegex(gr.Error, "already exists"):

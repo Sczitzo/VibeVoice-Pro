@@ -337,12 +337,21 @@ class VibeVoiceDemo:
             print(f"Error reading audio {audio_path}: {e}")
             return np.array([])
 
-    def saved_voice_names(self):
-        recorded = getattr(self, "voices_dir", Path()) / "recorded"
-        return [name for name, path in self.available_voices.items()
-                if Path(path).parent == recorded and Path(path).suffix.lower() == ".wav"]
+    @staticmethod
+    def voice_revision(path):
+        try:
+            info = Path(path).stat()
+        except OSError:
+            return None
+        return sha256(f"{info.st_dev}:{info.st_ino}:{info.st_ctime_ns}:{info.st_mtime_ns}:{info.st_size}".encode()).hexdigest()
 
-    def change_saved_voice(self, name, restore_from=None):
+    def saved_voice_catalog(self):
+        recorded = getattr(self, "voices_dir", Path()) / "recorded"
+        return {name: revision for name, path in self.available_voices.items()
+                if Path(path).parent == recorded and Path(path).suffix.lower() == ".wav"
+                and (revision := self.voice_revision(path)) is not None}
+
+    def change_saved_voice(self, name, *, revision=None, restore_from=None):
         if getattr(self, "share", False):
             raise gr.Error("Saved voices can only be removed on this computer.")
         recorded = self.voices_dir.resolve() / "recorded"
@@ -351,9 +360,14 @@ class VibeVoiceDemo:
             if recorded.resolve() != recorded or trash.resolve() != trash:
                 raise gr.Error("The saved voice folder could not be verified.")
             if restore_from is None:
-                if name not in self.saved_voice_names():
+                path = self.available_voices.get(name)
+                if not path:
+                    raise gr.Error("That saved voice is no longer available. Review the updated list.")
+                source = Path(path).absolute()
+                if source.parent != recorded or source.suffix.lower() != ".wav":
                     raise gr.Error("That saved voice is no longer available.")
-                source = Path(self.available_voices[name]).absolute()
+                if not isinstance(revision, str) or self.voice_revision(source) != revision:
+                    raise gr.Error("That recording has changed. Review the updated list before removing it.")
                 destination = trash / uuid4().hex / source.name
             else:
                 source = restore_from
@@ -967,9 +981,9 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
     takes = SavedTakes(takes_directory()) if private_features else None
     recorder_setup = "initVoiceRecorder();initVoiceMenu();" if private_features else "document.getElementById('open-voice-recorder').hidden = true;"
 
-    def render_saved_voice_names():
-        names = escape(json.dumps(demo_instance.saved_voice_names()), quote=True)
-        return f'<span data-saved-voice-names="{names}"></span>'
+    def render_saved_voice_catalog(catalog):
+        data = escape(json.dumps(catalog), quote=True)
+        return f'<span data-saved-voice-catalog="{data}" data-update="{uuid4().hex}"></span>'
 
     with AudioStreamBlocks(title="VibeVoice", theme=theme, css=css,
                    js="() => {" + browser_js + "\n" + recorder_setup + "initComposer();initScriptCheck();initGeneratedAudio();initStudioAudio();}") as interface:
@@ -1059,7 +1073,8 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                                 Press Shift+F10 to reveal Delete, then Enter to remove it or Escape to cancel.</span>
                             <span id="voice-menu-announcement" class="voice-menu-sr-only" role="status"></span>
                         """, padding=False, elem_id="voice-menu-status")
-                        voice_catalog = gr.HTML(render_saved_voice_names(), visible="hidden", elem_id="voice-menu-catalog")
+                        saved_voice_catalog = demo_instance.saved_voice_catalog()
+                        voice_catalog = gr.HTML(render_saved_voice_catalog(saved_voice_catalog), visible="hidden", elem_id="voice-menu-catalog")
                         voice_command = gr.Textbox(visible="hidden", elem_id="voice-menu-command")
                         voice_action = gr.Button(visible="hidden", elem_id="voice-menu-submit")
                         voice_result = gr.HTML(visible="hidden", elem_id="voice-menu-result")
@@ -1266,13 +1281,13 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
 
         def refresh_voice_choices(previous=None, *selections):
             choices = sorted(demo_instance.available_voices, key=str.casefold)
-            if choices == previous:
-                return [gr.skip()] * voice_output_count
-            updates = [gr.update(choices=choices) for _ in speaker_selections]
+            catalog = demo_instance.saved_voice_catalog()
+            same_choices = choices == previous
+            updates = [gr.skip() if same_choices else gr.update(choices=choices) for _ in speaker_selections]
             for index, selected in enumerate(selections):
                 if selected and selected not in choices:
                     updates[index]['value'] = None
-            return updates + [choices, render_saved_voice_names()]
+            return updates + [gr.skip() if same_choices else choices, render_saved_voice_catalog(catalog)]
 
         def save_recording(audio, name, start=None, end=None):
             unchanged = [gr.skip()] * voice_output_count
@@ -1315,8 +1330,10 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                         result = {"message": f"{name} restored.", "undo": False, "changed": True}
                         next_undo = None
                     elif isinstance(command, str) and command.startswith("delete:"):
-                        name = command.removeprefix("delete:")
-                        path = demo_instance.change_saved_voice(name)
+                        revision, separator, name = command.removeprefix("delete:").partition(":")
+                        if not separator:
+                            raise gr.Error("That recording has changed. Review the updated list before removing it.")
+                        path = demo_instance.change_saved_voice(name, revision=revision)
                         slots = [str(i) for i, choice in enumerate(selections, 1) if choice == name]
                         result = {"message": f"{name} removed.", "undo": True, "changed": True, "slots": slots}
                         next_undo = (name, path)
@@ -1324,7 +1341,8 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                         raise gr.Error("There is no voice removal to undo.")
                 except gr.Error as error:
                     result = {"message": error.message, "undo": bool(undo), "error": True}
-                    return unchanged + [gr.skip(), render_result(result)]
+                    updates = refresh_voice_choices(None, *selections) if isinstance(command, str) and command.startswith("delete:") else unchanged
+                    return updates + [gr.skip(), render_result(result)]
                 return refresh_voice_choices(None, *selections) + [next_undo, render_result(result)]
 
             voice_event = voice_action.click(

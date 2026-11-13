@@ -196,11 +196,35 @@ class StudioIntegrationTests(unittest.TestCase):
         refresh = next(fn for fn in interface.fns.values()
                        if getattr(fn.fn, '__name__', '') == 'refresh_voice_choices')
         self.assertEqual({event for _, event in refresh.targets}, {'load', 'click'})
-        self.assertEqual(refresh.fn(['alice', 'Carter', 'zeta']), updates[:6])
-        self.assertEqual(refresh.fn(updates[4]), [app.gr.skip()] * 6)
+        self.assertEqual(refresh.fn(['alice', 'Carter', 'zeta'])[:5], updates[:5])
+        self.assertEqual(refresh.fn(updates[4])[:5], [app.gr.skip()] * 5)
         cleared = refresh.fn(['alice', 'Carter', 'zeta', 'Removed'], 'Removed', 'Carter')
         self.assertIsNone(cleared[0]['value'])
         self.assertNotIn('value', cleared[1])
+
+    def test_stale_voice_removal_preserves_same_name_replacement(self):
+        self.demo.voices_dir = self.root
+        self.demo.voice_lock = threading.Lock()
+        sf.write(self.root / 'Alice.wav', np.ones(240), 24000)
+        self.demo.setup_voice_presets()
+        name, path = self.demo.save_recorded_voice((24000, np.ones(240)), 'Sample')
+        original = path.read_bytes()
+        calls = self.callbacks(self.interface())
+        # The first tab's trash action was opened for the original recording.
+        revision = self.demo.saved_voice_catalog()[name]
+        command = f'delete:{revision}:{name}'
+        removed = calls['apply_voice_action'](command, None, name, 'Alice', None, None)
+        self.assertIsNone(removed[0]['value'])
+        self.assertEqual(removed[-2][1].read_bytes(), original)
+
+        _, path = self.demo.save_recorded_voice((24000, -np.ones(240)), name)
+        replacement = path.read_bytes()
+        self.assertNotEqual(replacement, original)
+        stale = calls['apply_voice_action'](command, None, name, 'Alice', None, None)
+        self.assertIn('Review the updated list', stale[-1])
+        self.assertEqual(path.read_bytes(), replacement)
+        self.assertIsNone(stale[-2].get('value'))
+        self.assertIn(self.demo.saved_voice_catalog()[name], stale[5])
 
     def test_generate_listener_rejects_repeat_submissions_while_pending(self):
         interface = self.interface()
