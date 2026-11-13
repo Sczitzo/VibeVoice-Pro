@@ -144,6 +144,12 @@ def check_speaker_script(script: str, num_speakers: int, sectioned: bool = False
     return format_turns(turns)
 
 
+def spoken_units(script: ScriptCheck) -> int:
+    text = " ".join(line.partition(":")[2] for line in script.formatted.splitlines())
+    # Count unspaced Chinese and Japanese text by character and other text by word.
+    return max(1, len(re.findall(r"[\u3040-\u30ff\u3400-\u9fff]|[^\W_\u3040-\u30ff\u3400-\u9fff]+", text)))
+
+
 class VibeVoiceDemo:
     def __init__(self, model_path: str, device: str = "cuda", inference_steps: int = 5, adapter_path: Optional[str] = None, share: bool = False):
         """Initialize the VibeVoice demo with model loading."""
@@ -1014,9 +1020,10 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                                     <button type="button" data-replay-audio disabled>Replay</button>
                                     <button type="button" data-clear-audio disabled>Clear</button>
                                 </span>
-                                <span class="track-time"><span id="playback-elapsed">0:00</span> / <span id="playback-duration">0:00</span></span>
+                                <span class="track-time"><span id="playback-position-time"><span id="playback-elapsed">0:00</span> / </span><span id="playback-duration">0:00</span></span>
                             </div>
                             <div class="transport-wave transport-waveform">
+                                <progress id="generation-progress" aria-label="Audio generation progress" hidden></progress>
                                 <canvas id="playback-waveform" width="480" height="32" aria-hidden="true"></canvas>
                                 <input type="range" id="playback-seek" min="0" max="1000" step="1" value="0" aria-label="Playback position" disabled>
                             </div>
@@ -1026,7 +1033,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                 """, elem_id="playback-transport", padding=False)
                 with gr.Column(elem_id="composer-actions"):
                     generate_btn = gr.Button("Generate Audio", variant="primary", elem_id="generate-audio")
-                    stop_btn = gr.Button("Stop Generation", visible=False, elem_id="stop-generation")
+                    stop_btn = gr.Button("Stop", visible=False, elem_id="stop-generation")
 
         audio_output = gr.Audio(label="Live Audio", type="numpy", streaming=True, autoplay=False,
                                 show_download_button=False, elem_id="live-generated-audio")
@@ -1046,19 +1053,16 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
         """, padding=False, elem_id="composer-settings-host")
         with gr.Column(elem_id="composer-settings-fields"):
             gr.HTML("""
-                <div class="guidance-heading">
-                    <span>Guidance Strength</span>
-                    <span class="composer-help">
-                        <button type="button" aria-label="About guidance strength" aria-describedby="guidance-tooltip">?</button>
-                        <span id="guidance-tooltip" class="composer-tooltip" role="tooltip" hidden>Change how strongly VibeVoice follows the selected voice and script. Start with 1.3.</span>
-                    </span>
-                </div>
-            """, padding=False)
-            cfg_scale = gr.Slider(1.0, 12.0, value=1.3, step=0.05, label="Guidance Strength", show_label=False,
+                <span class="composer-help" id="guidance-help">
+                    <button type="button" aria-label="About guidance strength" aria-describedby="guidance-tooltip">?</button>
+                    <span id="guidance-tooltip" class="composer-tooltip" role="tooltip" hidden>Change how strongly VibeVoice follows the selected voice and script. Start with 1.3.</span>
+                </span>
+            """, padding=False, elem_id="guidance-help-source")
+            cfg_scale = gr.Slider(1.0, 12.0, value=1.3, step=0.05, label="Guidance Strength",
                                   elem_id="guidance-strength")
             inference_steps = gr.Slider(1, 50, value=int(getattr(demo_instance, "inference_steps", 10)),
-                                        step=1, label="Inference Steps")
-            seed = gr.Number(value=42, precision=0, label="Seed (-1 = random)")
+                                        step=1, label="Inference Steps", elem_id="inference-steps")
+            seed = gr.Number(value=42, precision=0, label="Seed (-1 = random)", elem_id="generation-seed")
             disable_voice_cloning = gr.Checkbox(value=False, label="Disable voice cloning",
                                                info="Generate voices without using the selected voice recordings.")
             section_mode = gr.Checkbox(label="Generate in sections (preview)", value=False, visible=private_features, elem_id="section-mode",
@@ -1072,8 +1076,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
         gr.HTML("""
             <dialog id="studio-library" aria-labelledby="studio-library-title">
                 <header class="recorder-header"><h2 id="studio-library-title">Takes &amp; Sections</h2>
-                <div class="studio-audio-actions"><button type="button" class="composer-button" data-stop-studio disabled>Stop generation</button><button type="button" class="composer-button" data-close-studio>Done</button></div></header>
-                <p data-studio-status role="status"></p>
+                <button type="button" class="composer-button" data-close-studio>Done</button></header>
                 <div id="studio-library-fields-host"></div>
             </dialog>
         """, padding=False)
@@ -1083,10 +1086,11 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
             section_action = gr.Button(visible="hidden", elem_id="section-action")
             if takes is not None:
                 with gr.Row(elem_id="take-save-controls"):
-                    take_name = gr.Textbox(label="Take name", placeholder="Latest generation")
+                    take_name = gr.Textbox(label="Take name", placeholder="Latest generation", lines=1, max_lines=1)
                     save_take = gr.Button("Save Take", variant="primary")
                 take_status = gr.Markdown()
                 take_list = gr.HTML(padding=False)
+                refresh_takes = gr.Button(visible="hidden", elem_id="refresh-takes")
                 open_folder = gr.Button("Open takes folder", visible=sys.platform == "win32")
                 take_id = gr.Textbox(visible=False)
                 take_file = gr.File(visible=False)
@@ -1199,6 +1203,10 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
             saved_voice_file = gr.File(interactive=False, visible="hidden")
             voice_saved = gr.Checkbox(value=False, visible=False)
 
+        def refresh_voice_choices():
+            choices = sorted(demo_instance.available_voices, key=str.casefold)
+            return [gr.update(choices=choices) for _ in speaker_selections]
+
         def save_recording(audio, name, start=None, end=None):
             unchanged = [gr.skip() for _ in speaker_selections]
             empty_file = gr.update(value=None)
@@ -1213,14 +1221,17 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                     saved_name, saved_path = demo_instance.save_recorded_voice(audio, name, start, end)
             except gr.Error as error:
                 return unchanged + [error.message, empty_file, False]
-            choices = sorted(demo_instance.available_voices, key=str.casefold)
-            updates = [gr.update(choices=choices) for _ in speaker_selections]
-            return updates + [
+            return refresh_voice_choices() + [
                 f"Saved **{saved_name}.wav**. Choose it from any speaker dropdown.",
                 gr.update(value=str(saved_path)), True
             ]
 
         if private_features:
+            gr.on(
+                triggers=[interface.load, *(speaker.focus for speaker in speaker_selections)],
+                fn=refresh_voice_choices, outputs=speaker_selections,
+                queue=False, api_name=False, show_progress="hidden",
+            )
             save_event = save_voice_btn.click(
                 fn=save_recording,
                 inputs=[voice_recording, voice_name, import_start, import_end],
@@ -1303,7 +1314,10 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                 except OSError:
                     return "Could not open the saved takes folder."
 
-            interface.load(render_takes, outputs=take_list, api_name=False, queue=False)
+            gr.on(
+                triggers=[interface.load, refresh_takes.click], fn=render_takes, outputs=take_list,
+                api_name=False, queue=False, show_progress="hidden",
+            )
             save_take.click(save_completed_take, [completed_take, take_name], [take_list, take_status], api_name=False, queue=False)
             open_folder.click(open_takes_folder, outputs=take_status, api_name=False, queue=False)
             open_take.click(open_saved_take, take_id, take_file, api_name="open_saved_take", show_api=False, queue=False)
@@ -1358,6 +1372,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
 
         active_lock = threading.Lock()
         active = None
+        last_timing = None
 
         def claim_model(request):
             nonlocal active
@@ -1374,16 +1389,18 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                 active = None
 
         def generation_update(log, *, running=False, live=None, streaming=False,
-                              feedback=None, warning=None, completed=None, job=None, panel=None):
+                              feedback=None, warning=None, completed=None, job=None, panel=None,
+                              progress=None):
             return (
                 live, gr.update(value=completed[0]) if completed else gr.skip(), log,
                 gr.update(visible=streaming), gr.update(visible=not running),
-                gr.update(visible=running, interactive=True),
+                gr.update(visible=running, interactive=True, value="Stop"),
                 gr.update(value=warning, visible=bool(warning)),
                 *(feedback if feedback is not None else (gr.skip(), gr.skip())),
                 completed if completed else gr.skip(), job if job is not None else gr.skip(),
                 panel if panel is not None else gr.skip(),
-                json.dumps({"id": uuid4().hex, "running": running, "completed": bool(completed)}),
+                json.dumps({"id": uuid4().hex, "running": running, "completed": bool(completed),
+                            "progress": progress}),
             )
 
         def render_sections(job, running=False, note=""):
@@ -1411,7 +1428,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                     f'<ul>{"".join(rows)}</ul><button type="button" class="composer-button" '
                     f'data-section-command="{job.id}:export"{disabled}>Export full WAV</button></section>')
 
-        def run_sections(job, indices, cancelled):
+        def run_sections(job, indices, cancelled, feedback=None):
             def synthesize(section, inputs):
                 completed = None
                 last_log = ""
@@ -1424,9 +1441,18 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                     raise ValueError("The model reached its limit before finishing this section.")
                 return completed
 
-            for _ in job.run(indices, synthesize, cancelled):
+            started = time.monotonic()
+            work = {index: spoken_units(job.sections[index]) for index in indices}
+            for _ in job.run(work, synthesize, cancelled):
+                finished = sum(units for index, units in work.items() if job.status[index] == "Ready")
+                remaining = sum(units for index, units in work.items()
+                                if job.status[index] in ("Waiting", "Generating"))
+                eta = math.ceil((time.monotonic() - started) * remaining / finished) if finished else None
                 yield generation_update("Generating sections…", running=True, job=job,
-                                        panel=render_sections(job, running=True))
+                                        panel=render_sections(job, running=True), feedback=feedback,
+                                        progress={"ready": job.status.count("Ready"), "total": len(job.sections),
+                                                  "eta": eta})
+                feedback = None
             note = "Stopped. Retry any unfinished section." if cancelled.is_set() else ""
             yield generation_update("Section results are ready to review.", job=job,
                                     panel=render_sections(job, note=note))
@@ -1434,6 +1460,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
         def generate_podcast_wrapper(num_speakers, script, speaker_1, speaker_2, speaker_3, speaker_4,
                                      cfg_scale, inference_steps, seed, disable_voice_cloning,
                                      sectioned=False, request: gr.Request = None):
+            nonlocal last_timing
             sectioned = bool(sectioned and private_features)
             check = check_speaker_script(script, num_speakers, sectioned)
             feedback = script_feedback_updates(script, num_speakers, check, sectioned)
@@ -1457,13 +1484,27 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                 yield generation_update("The model is busy.", warning="Wait for the current generation to finish.")
                 return
             try:
-                yield generation_update("Starting generation…", running=True, feedback=feedback)
                 if sectioned:
                     job = SectionJob(check.sections, inputs)
-                    yield from run_sections(job, range(len(job.sections)), cancelled)
+                    yield from run_sections(job, range(len(job.sections)), cancelled, feedback=feedback)
                     return
+                timing_key = (tuple(choices[slot] for slot in check.voice_slots),
+                              inference_steps, cfg_scale, disable_voice_cloning)
+                units = spoken_units(check)
+                # shortcut: script length only approximates spoken duration; use measured
+                # alignment if the model later reports which words it has finished.
+                expected_seconds = max(2, units / 2.25)
+                initial_eta = None
+                if last_timing and last_timing[0] == timing_key:
+                    _, seconds_per_unit, compute_per_second = last_timing
+                    expected_seconds = max(2, units * seconds_per_unit)
+                    initial_eta = math.ceil(expected_seconds * compute_per_second)
+                started = time.monotonic()
+                yield generation_update("Starting generation…", running=True, feedback=feedback,
+                                        progress={"percent": 0, "eta": initial_eta})
                 final_log = "Starting generation…"
                 completed = None
+                generated_seconds = 0.0
                 for streaming_audio, complete_audio, log, _ in demo_instance.generate_podcast_streaming(
                     **inputs, checked=check, cancelled=cancelled
                 ):
@@ -1471,7 +1512,18 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                     if complete_audio and not cancelled.is_set():
                         completed = (complete_audio, tuple(choices[i] for i in check.voice_slots))
                     if streaming_audio is not None and not cancelled.is_set():
-                        yield generation_update(log, running=True, live=streaming_audio, streaming=True)
+                        sample_rate, samples = streaming_audio
+                        generated_seconds += len(samples) / sample_rate
+                        remaining = expected_seconds - generated_seconds
+                        elapsed = time.monotonic() - started
+                        eta = math.ceil(remaining * elapsed / generated_seconds) if remaining > 0 and elapsed > 0 else None
+                        yield generation_update(log, running=True, live=streaming_audio, streaming=True,
+                                                progress={"seconds": int(generated_seconds),
+                                                          "percent": min(95, int(100 * generated_seconds / expected_seconds)),
+                                                          "eta": eta})
+                if completed and generated_seconds >= 2:
+                    last_timing = (timing_key, generated_seconds / units,
+                                   (time.monotonic() - started) / generated_seconds)
                 warning = None
                 if not completed and not cancelled.is_set():
                     warning = "Audio wasn’t generated. Check Technical Details and try again."
@@ -1518,7 +1570,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                     return gr.skip(), gr.skip(), gr.skip()
                 active[1].set()
                 demo_instance.stop_audio_generation()
-            return "Stopping generation…", gr.update(visible=False), gr.update(interactive=False)
+            return "Stopping generation…", gr.update(visible=False), gr.update(value="Stopping…", interactive=False)
 
         generation_outputs = [audio_output, complete_audio_output, log_output, streaming_status, generate_btn,
                               stop_btn, generation_feedback, *script_check_outputs, completed_take, section_job, section_panel, generation_outcome]

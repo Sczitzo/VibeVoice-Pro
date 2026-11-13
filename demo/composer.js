@@ -178,8 +178,9 @@ function initComposer() {
     }
 
     document.getElementById("settings-fields-host").append(settingsFields);
-    for (const input of settingsFields.querySelectorAll("#guidance-strength input")) {
-        input.setAttribute("aria-label", "Guidance Strength");
+    const guidance = settingsFields.querySelector("#guidance-strength");
+    guidance.querySelector(".head label")?.after(document.getElementById("guidance-help"));
+    for (const input of guidance.querySelectorAll("input")) {
         input.setAttribute("aria-describedby", "guidance-tooltip");
     }
     settingsButton.addEventListener("click", () => settings.showModal());

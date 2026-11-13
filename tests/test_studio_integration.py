@@ -54,8 +54,10 @@ class StudioIntegrationTests(unittest.TestCase):
         calls = self.callbacks(self.interface())
         result = list(calls['generate_podcast_wrapper'](*self.args()))[-1]
         completed = result[9]
-        _, status = calls['save_completed_take'](completed, 'Demo take')
+        rendered, status = calls['save_completed_take'](completed, 'Demo take')
         self.assertIn('Saved', status)
+        self.assertIn('Demo take', rendered)
+        self.assertIn('Demo take', calls['render_takes']())
         take = app.SavedTakes(self.root / 'takes').list()[0]
         copied = calls['open_saved_take'](take.id)
         self.assertTrue(Path(copied).is_file())
@@ -92,6 +94,9 @@ class StudioIntegrationTests(unittest.TestCase):
         rows = list(calls['generate_podcast_wrapper'](*self.args('Speaker 1: Open.\n---\nSpeaker 1: Middle.'), True))
         job = rows[-1][10]
         self.assertEqual(job.status, ['Ready', 'Failed'])
+        progress = [json.loads(row[-1])['progress'] for row in rows]
+        self.assertEqual([entry['ready'] for entry in progress if entry], [0, 1, 1, 1])
+        self.assertTrue(all(entry['total'] == 2 for entry in progress if entry))
         list(calls['section_request'](job.id + ':1', job))
         exported = list(calls['section_request'](job.id + ':export', job))[-1]
         values, _ = sf.read(exported[9][0], dtype='int16')
@@ -188,6 +193,11 @@ class StudioIntegrationTests(unittest.TestCase):
         for update in updates[:4]:
             self.assertEqual(update['choices'], ['alice', 'beta', 'Carter', 'zeta'])
             self.assertNotIn('value', update)
+        refresh = next(fn for fn in interface.fns.values()
+                       if getattr(fn.fn, '__name__', '') == 'refresh_voice_choices')
+        self.assertEqual({event for _, event in refresh.targets}, {'load', 'focus'})
+        self.assertEqual(len(refresh.targets), 5)
+        self.assertEqual(refresh.fn(), updates[:4])
 
     def test_generate_listener_rejects_repeat_submissions_while_pending(self):
         interface = self.interface()
@@ -198,11 +208,29 @@ class StudioIntegrationTests(unittest.TestCase):
 
     def test_generation_emits_explicit_terminal_outcome_with_file(self):
         def generate(**kwargs):
+            yield (24000, np.zeros(36000, dtype=np.int16)), None, 'Live', {}
+            yield (24000, np.zeros(36000, dtype=np.int16)), None, 'Live', {}
             yield None, str(self.wav), 'Complete', {}
         self.demo.generate_podcast_streaming = generate
         calls = self.callbacks(self.interface())
-        results = list(calls['generate_podcast_wrapper'](*self.args()))
+        clock = SimpleNamespace(monotonic=iter([100, 103, 106, 107, 108]).__next__)
+        with patch.object(app, 'time', clock):
+            results = list(calls['generate_podcast_wrapper'](*self.args()))
+            next_run = calls['generate_podcast_wrapper'](*self.args())
+            try:
+                next_progress = json.loads(next(next_run)[-1])['progress']
+            finally:
+                next_run.close()
         self.assertTrue(json.loads(results[0][-1])['running'])
+        progress = [json.loads(row[-1])['progress'] for row in results]
+        self.assertEqual(progress[0], {'percent': 0, 'eta': None})
+        self.assertEqual([entry['seconds'] for entry in progress[1:3]], [1, 3])
+        self.assertEqual(progress[1]['percent'], 75)
+        self.assertEqual(progress[1]['eta'], 1)
+        self.assertEqual(progress[2]['percent'], 95)
+        self.assertIsNone(progress[2]['eta'])
+        self.assertIsNone(progress[-1])
+        self.assertEqual(next_progress['eta'], 7)
         self.assertEqual(json.loads(results[-1][-1])['completed'], True)
         self.assertFalse(json.loads(results[-1][-1])['running'])
         self.assertEqual(results[-1][1]['value'], str(self.wav))
