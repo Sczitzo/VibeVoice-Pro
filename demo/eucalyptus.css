@@ -1120,3 +1120,21 @@ gradio-app .app:has(#guided-composer) {
 #voice-recorder [data-import-range] canvas { width: 100%; height: 72px; }
 #voice-recorder [data-import-range] label { flex: 1; min-width: 120px; }
 #voice-recorder [data-import-range] input { display: block; width: 100%; min-height: 44px; }
+
+/* Quiet Composer pilot: keep inputs explicit; let optional actions recede. */
+#guided-composer .composer-header-actions button,
+#guided-composer #script-heading button,
+#guided-composer #speaker-chips button {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none;
+}
+#guided-composer .composer-header-actions button:hover:not(:disabled),
+#guided-composer #script-heading button:hover:not(:disabled) {
+    background: var(--field) !important;
+}
+#guided-composer #speaker-chips button:hover:not(:disabled) {
+    background: var(--tone-hover, #cce9dc) !important;
+}
+#guided-composer #composer-transport .track-meta { column-gap: 13px; }
+#guided-composer #composer-transport .take-controls { margin-right: 8px; }

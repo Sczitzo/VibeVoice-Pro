@@ -22,7 +22,8 @@ function harness() {
     ids['playback-waveform'].getContext=()=>null;
     const replay=new Element(), clear=new Element(), stop={visible:false,getClientRects(){return this.visible?[{}]:[];}};
     const completed={querySelector:s=>s==='audio'?audio:s==='[data-replay-audio]'?replay:s==='[data-clear-audio]'?clear:ids[s.slice(1)]};
-    const liveRegion=new Element(); liveRegion.querySelector=()=>live;
+    let liveElement=live;
+    const liveRegion=new Element(); liveRegion.querySelector=()=>liveElement;
     const composer={querySelector:s=>s==='#stop-generation'?stop:null};
     let sync, captureClick;
     const window=new EventTarget();window.location={href:'http://localhost:7881/',origin:'http://localhost:7881'};
@@ -32,7 +33,7 @@ function harness() {
     vm.runInNewContext(source+'\ninitGeneratedAudio();',context);
     const begin=()=>{window.vibevoicePlayback.start();stop.visible=true;live.src='/new-stream';live.readyState=2;sync();};
     const finish=(url='/final.wav')=>{stop.visible=false;sync();window.vibevoicePlayback.complete({url});audio.readyState=1;audio.dispatchEvent(new Event('loadedmetadata'));};
-    return {audio,live,clear,stop,sync,begin,finish,submit:(target="generate")=>{let blocked=false;captureClick({target:{closest:selector=>target==="section" ? selector.includes("data-section-command") : true},preventDefault(){blocked=true;},stopImmediatePropagation(){}});return !blocked;},play:ids['playback-toggle'],api:window.vibevoicePlayback, meter:ids['generation-progress'], duration:ids['playback-duration']};
+    return {audio,live,clear,stop,sync,begin,finish,replaceLive:()=>{liveElement=new Audio();return liveElement;},submit:(target="generate")=>{let blocked=false;captureClick({target:{closest:selector=>target==="section" ? selector.includes("data-section-command") : true},preventDefault(){blocked=true;},stopImmediatePropagation(){}});return !blocked;},play:ids['playback-toggle'],api:window.vibevoicePlayback, meter:ids['generation-progress'], duration:ids['playback-duration']};
 }
 test('estimated progress and ETA update while playback is paused and clear on Stop', () => {
     const h = harness();
@@ -142,4 +143,36 @@ test('serialized terminal outcome completes handoff and malformed outcome safely
  const h=harness();h.begin();h.live.currentTime=6;h.api.finish(JSON.stringify({running:false,completed:true}),{url:'/new.wav'});
  h.audio.readyState=1;h.audio.dispatchEvent(new Event('loadedmetadata'));assert.equal(h.audio.currentTime,6);assert.equal(h.api.isPending(),false);
  h.api.start();h.api.finish('invalid',null);assert.equal(h.api.isPending(),false);
+});
+
+
+test('buffering during completion preserves play intent without resuming an explicit pause',()=>{
+    for (const userPaused of [false,true]) {
+        const h=harness();h.begin();h.live.currentTime=22;
+        if(userPaused) h.play.dispatchEvent(new Event('click'));
+        h.live.readyState=1;h.finish();
+        assert.equal(h.audio.currentTime,22);
+        assert.equal(h.audio.paused,userPaused);
+        assert.equal(h.live.paused,true);
+    }
+});
+
+
+test('consecutive generation does not play a replacement element carrying the previous stream',()=>{
+    const h=harness();h.begin();h.live.currentTime=16;h.finish('/first.wav');
+    h.api.start();h.stop.visible=true;
+    const replacement=h.replaceLive();replacement.src='/new-stream';replacement.currentTime=16;replacement.readyState=2;
+    h.sync();
+    assert.equal(replacement.paused,true);assert.equal(h.play.disabled,true);
+    replacement.src='/second-stream';replacement.currentTime=0;h.sync();
+    assert.equal(replacement.paused,false);assert.equal(h.play.disabled,false);
+});
+
+test('new src waits until stale currentSrc has been replaced before playing or transferring time',async()=>{
+    const h=harness();h.begin();h.live.currentSrc='/new-stream';h.finish('/first.wav');await Promise.resolve();await Promise.resolve();
+    h.api.start();h.stop.visible=true;h.live.src='/second-stream';h.live.currentTime=16;h.sync();
+    assert.equal(h.live.paused,true);assert.equal(h.play.disabled,true);
+    h.live.currentSrc='/second-stream';h.live.currentTime=0;h.sync();
+    assert.equal(h.live.paused,false);
+    h.finish('/second.wav');assert.equal(h.audio.currentTime,0);
 });

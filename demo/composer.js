@@ -67,6 +67,7 @@ function initComposer() {
             editor.setSelectionRange(state.start ?? 0, state.end ?? 0);
             editorUsed = true;
         } finally { restoring = false; }
+        refreshAfterRender();
     }
     const history = createScriptHistory(snapshot(), restore, available => {
         undo.hidden = !available;
@@ -107,7 +108,13 @@ function initComposer() {
 
     editor.addEventListener("focus", () => { editorUsed = true; });
     editor.addEventListener("input", refresh);
-    count.addEventListener("change", refresh);
+    // Gradio may flush radio state after its change handler. Re-read the current
+    // selection after rendering so Undo/Redo and rapid changes cannot leave stale chips.
+    function refreshAfterRender() {
+        refresh();
+        if (typeof requestAnimationFrame === "function") requestAnimationFrame(refresh);
+    }
+    count.addEventListener("change", refreshAfterRender);
     for (const chip of chips) {
         chip.addEventListener("click", () => {
             const { value } = editor;

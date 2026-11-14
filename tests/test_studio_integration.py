@@ -267,6 +267,22 @@ class StudioIntegrationTests(unittest.TestCase):
         self.assertNotEqual(json.loads(rejected[-1])['id'], json.loads(results[-1][-1])['id'])
         self.assertNotIn('value', rejected[1])
 
+    def test_valid_generation_resets_previous_live_stream_but_retains_completed_take(self):
+        def generate(**kwargs):
+            yield None, str(self.wav), 'Complete', {}
+        self.demo.generate_podcast_streaming = generate
+        calls = self.callbacks(self.interface())
+        for _ in range(2):
+            results = list(calls['generate_podcast_wrapper'](*self.args()))
+            initial = results[0]
+            self.assertEqual(initial[0], {'__type__': 'update', 'value': None})
+            self.assertNotIn('value', initial[1])
+            self.assertNotIn('value', initial[9])
+            self.assertEqual(results[-1][1]['value'], str(self.wav))
+        rejected = list(calls['generate_podcast_wrapper'](*self.args('')))[0]
+        self.assertIsNone(rejected[0])
+        self.assertNotIn('value', rejected[1])
+
     def test_random_examples_cycle_without_overwriting_editor_on_server(self):
         self.demo.example_scripts = [[1, 'One'], [2, 'Two'], [3, 'Three']]
         interface = self.interface()

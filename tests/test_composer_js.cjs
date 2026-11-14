@@ -3,6 +3,7 @@ const {test}=require('node:test');
 const fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync('demo/composer.js','utf8');
 function harness(){
+ const frames=[];
  class El extends EventTarget{constructor(){super();this.dataset={};this.value='';this.style={setProperty(key,value){this[key]=value;}};}getBoundingClientRect(){return {width:100};}setAttribute(){}focus(){this.dispatchEvent(new Event('focus'));}append(){}after(){}querySelectorAll(){return [];}querySelector(){return new El();}}
  const editor=new El();editor.value='My draft';editor.selectionStart=editor.selectionEnd=8;
  editor.setSelectionRange=(s,e)=>{editor.selectionStart=s;editor.selectionEnd=e;};
@@ -10,11 +11,12 @@ function harness(){
  const count=new El();const radios=[1,2,3,4].map(n=>({value:String(n),checked:n===2,click(){radios.forEach(r=>r.checked=r===this);count.dispatchEvent(new Event('change'));}}));
  count.querySelector=()=>radios.find(r=>r.checked);count.querySelectorAll=()=>radios;
  const elements={'guided-composer':new El(),'speaker-count':count,'undo-script':undo};
- const document={querySelector:()=>editor,querySelectorAll:()=>[],getElementById:id=>elements[id]||(elements[id]=new El())};
- const window={};vm.runInNewContext(source+'\ninitComposer();',{document,window,Event,Intl});
+ const chips=[1,2,3,4].map(n=>{const e=new El();e.dataset.speaker=String(n);return e;});
+ const document={querySelector:()=>editor,querySelectorAll:selector=>selector.includes("speaker-chips")?chips:[],getElementById:id=>elements[id]||(elements[id]=new El())};
+ const window={};vm.runInNewContext(source+'\ninitComposer();',{document,window,Event,Intl,requestAnimationFrame:fn=>frames.push(fn)});
  const type=text=>{editor.value=text;editor.selectionStart=editor.selectionEnd=text.length;editor.dispatchEvent(new Event('input'));};
  const key=(key,shift=false)=>{const e=new Event('keydown',{cancelable:true});Object.assign(e,{key,ctrlKey:true,shiftKey:shift});editor.dispatchEvent(e);return e.defaultPrevented;};
- return {elements,editor,undo,type,key,example:window.vibevoiceComposer.applyExample,count,radios};
+ return {chips,flush:()=>{while(frames.length)frames.shift()();},elements,editor,undo,type,key,example:window.vibevoiceComposer.applyExample,count,radios};
 }
 test('typing shows Undo and restores prior text with keyboard redo',()=>{
  const h=harness();assert.equal(h.undo.hidden,true);h.type('Changed draft');assert.equal(h.undo.hidden,false);
@@ -52,4 +54,18 @@ test('panel border cutouts use the measured heading width',()=>{
  const h=harness();
  assert.equal(h.elements['composer-script'].style['--heading-gap'],'100px');
  assert.equal(h.elements['composer-speakers'].style['--heading-gap'],'100px');
+});
+
+
+test('Undo refreshes speaker chips after deferred framework rendering',()=>{
+ const h=harness();h.radios[3].click();h.type('Four speaker draft');
+ h.example({script:'Two speaker example',speakers:2});h.flush();
+ h.undo.dispatchEvent(new Event('click'));
+ // Simulate a framework render that momentarily restores its old chip visibility.
+ h.chips[2].hidden=h.chips[3].hidden=true;
+ h.flush();
+ assert.equal(h.count.querySelector().value,'4');
+ assert.deepEqual(h.chips.map(c=>c.hidden),[false,false,false,false]);
+ h.radios[0].click();h.radios[2].click();h.flush();
+ assert.deepEqual(h.chips.map(c=>c.hidden),[false,false,false,true]);
 });

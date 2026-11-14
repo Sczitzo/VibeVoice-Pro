@@ -84,6 +84,7 @@ function initGeneratedAudio() {
     let liveAudio;
     let previousAudio;
     let previousSource;
+    let previousCurrentSource;
     let requested = false;
     let generating = false;
     let paused = false;
@@ -117,21 +118,27 @@ function initGeneratedAudio() {
         const peaks = generating ? [] : waveform;
         const max = peaks.length ? Math.max(...peaks) : 0;
         if (!max) {
-            context.fillStyle = "#82b5a2";
+            context.fillStyle = "#8b9d91";
             context.fillRect(0, height / 2, width, 1);
             return;
         }
         const spacing = width / peaks.length;
         for (let i = 0; i < peaks.length; i++) {
             const bar = Math.max(2, peaks[i] / max * height * 0.86);
-            context.fillStyle = i / peaks.length <= progress ? "#e2fff1" : "#82b5a2";
+            context.fillStyle = i / peaks.length <= progress ? "#16634b" : "#8b9d91";
             context.fillRect(i * spacing, (height - bar) / 2, Math.max(1, spacing * 0.58), bar);
         }
     }
 
     function currentLivePlayer() {
         const source = liveAudio?.getAttribute("src") || liveAudio?.currentSrc;
-        return liveAudio && source && (liveAudio !== previousAudio || source !== previousSource) ? liveAudio : null;
+        if (!liveAudio || !source) return null;
+        // Gradio can replace the element before replacing its stream. Element
+        // identity is not generation identity. Also wait while a new src still
+        // reports the preceding currentSrc during asynchronous media loading.
+        const stale = value => value && (value === previousSource || value === previousCurrentSource);
+        if (stale(source) || stale(liveAudio.currentSrc)) return null;
+        return liveAudio;
     }
 
     function publishPending() {
@@ -152,7 +159,7 @@ function initGeneratedAudio() {
     function rememberLivePosition() {
         const player = currentLivePlayer();
         if ((requested || generating) && player && Number.isFinite(player.currentTime)) {
-            liveTransfer = {position: player.currentTime, playing: !paused && player.readyState >= 2};
+            liveTransfer = {position: player.currentTime, playing: !paused && !player.ended};
         }
     }
 
@@ -328,6 +335,7 @@ function initGeneratedAudio() {
             audio.pause();
             previousAudio = liveRegion.querySelector("audio");
             previousSource = previousAudio?.getAttribute("src") || previousAudio?.currentSrc;
+            previousCurrentSource = previousAudio?.currentSrc;
             silence(previousAudio);
             requested = true;
             awaitingOutcome = true;

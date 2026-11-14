@@ -972,11 +972,13 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
     """Create the Gradio interface with streaming support."""
 
     demo_dir = Path(__file__).parent
+    import base64
+    brand_mark = "data:image/svg+xml;base64," + base64.b64encode((demo_dir / "assets" / "voice-fold.svg").read_bytes()).decode("ascii")
     recorder_js = (demo_dir / "voice_recorder.js").read_text(encoding="utf-8")
     browser_js = "\n".join((recorder_js, *((demo_dir / name).read_text(encoding="utf-8")
-                                         for name in ("composer.js", "voice_menu.js", "script_check.js", "generated_audio.js", "studio_audio.js"))))
-    css = (demo_dir / "eucalyptus.css").read_text(encoding="utf-8")
-    theme = gr.themes.Base(primary_hue=gr.themes.colors.teal, font=["Inter", "Segoe UI", "sans-serif"])
+                                         for name in ("composer.js", "voice_menu.js", "script_check.js", "generated_audio.js", "studio_audio.js", "writing_studio.js"))))
+    css = (demo_dir / "eucalyptus.css").read_text(encoding="utf-8") + "\n" + (demo_dir / "writing_studio.css").read_text(encoding="utf-8")
+    theme = gr.themes.Base(primary_hue=gr.themes.colors.teal, font=["Segoe UI", "Arial", "sans-serif"])
     private_features = not getattr(demo_instance, "share", False)
     takes = SavedTakes(takes_directory()) if private_features else None
     recorder_setup = "initVoiceRecorder();initVoiceMenu();" if private_features else "document.getElementById('open-voice-recorder').hidden = true;"
@@ -986,24 +988,24 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
         return f'<span data-saved-voice-catalog="{data}" data-update="{uuid4().hex}"></span>'
 
     with AudioStreamBlocks(title="VibeVoice", theme=theme, css=css,
-                   js="() => {" + browser_js + "\n" + recorder_setup + "initComposer();initScriptCheck();initGeneratedAudio();initStudioAudio();}") as interface:
+                   js="() => {" + browser_js + "\n" + recorder_setup + "initComposer();initScriptCheck();initGeneratedAudio();initStudioAudio();initWritingStudio();}") as interface:
         with gr.Column(elem_id="guided-composer"):
             gr.HTML("""
                 <header class="composer-header">
                     <a class="composer-skip" href="#composer-editor">Skip to Script</a>
                     <div class="composer-brand">
-                        <span class="composer-brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-                        <div><h1>VibeVoice</h1><span>Guided Composer</span></div>
+
+                        <img class="voice-brand-mark" src="__BRAND_MARK__" alt="" width="32" height="32"><h1 aria-label="VibeVoice"><span class="brand-vibe" aria-hidden="true">Vibe</span><span class="brand-voice" aria-hidden="true">Voice</span></h1>
                     </div>
                     <div class="composer-header-actions">
                         <button type="button" id="show-speakers" class="composer-button mobile-only"
                                 aria-controls="composer-speakers" aria-expanded="false">Speakers</button>
-                        <button type="button" id="open-studio-library" class="composer-button" aria-haspopup="dialog">Takes &amp; Sections</button>
+                        <button type="button" id="open-studio-library" class="composer-button" aria-haspopup="dialog">Takes</button>
                         <button type="button" id="open-voice-recorder" class="composer-button"
                                 aria-haspopup="dialog">Create Voice</button>
                     </div>
                 </header>
-            """, elem_id="composer-header", padding=False)
+            """.replace("__BRAND_MARK__", brand_mark), elem_id="composer-header", padding=False)
 
             with gr.Row(elem_id="composer-grid"):
                 with gr.Column(elem_id="composer-script"):
@@ -1015,6 +1017,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                             check_script_btn = gr.Button("Check Script", elem_id="check-script")
                             gr.HTML('<span id="word-count">0 words</span>', padding=False)
                     with gr.Column(elem_id="editor-frame"):
+                        gr.HTML('<input id="manuscript-title" aria-label="Session title" placeholder="Untitled session" maxlength="100" autocomplete="off">', padding=False)
                         gr.HTML("""
                             <div id="speaker-chips" aria-label="Insert a speaker label">
                                 <span>Insert speaker</span>
@@ -1620,6 +1623,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                     initial_eta = math.ceil(expected_seconds * compute_per_second)
                 started = time.monotonic()
                 yield generation_update("Starting generation…", running=True, feedback=feedback,
+                                        live=gr.update(value=None),
                                         progress={"percent": 0, "eta": initial_eta})
                 final_log = "Starting generation…"
                 completed = None
