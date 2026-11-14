@@ -3,7 +3,7 @@ const {test}=require('node:test');
 const fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync('demo/composer.js','utf8');
 function harness(){
- class El extends EventTarget{constructor(){super();this.dataset={};this.value='';this.style={setProperty(key,value){this[key]=value;}};}getBoundingClientRect(){return {width:100};}setAttribute(){}focus(){this.dispatchEvent(new Event('focus'));}append(){}querySelectorAll(){return [];}querySelector(){return new El();}}
+ class El extends EventTarget{constructor(){super();this.dataset={};this.value='';this.style={setProperty(key,value){this[key]=value;}};}getBoundingClientRect(){return {width:100};}setAttribute(){}focus(){this.dispatchEvent(new Event('focus'));}append(){}after(){}querySelectorAll(){return [];}querySelector(){return new El();}}
  const editor=new El();editor.value='My draft';editor.selectionStart=editor.selectionEnd=8;
  editor.setSelectionRange=(s,e)=>{editor.selectionStart=s;editor.selectionEnd=e;};
  const undo=new El();undo.hidden=true;

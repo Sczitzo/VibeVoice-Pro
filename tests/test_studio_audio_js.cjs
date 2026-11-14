@@ -27,9 +27,22 @@ test('explicit section export after Stop accepts a completed file without enabli
     assert.equal(audio.src, 'http://localhost:7881/export.wav');
 });
 
-test('studio exposes modal Stop and resets export acceptance', () => {
+test('section retry closes the library so Stop is reachable in the composer', () => {
     const studio = fs.readFileSync(path.join(__dirname, '../demo/studio_audio.js'), 'utf8');
-    assert.match(studio, /data-stop-studio/);
-    assert.match(studio, /stopHere\.disabled\) stop\.click\(\)/);
-    assert.match(studio, /endsWith\(":export"\)\) window\.vibevoicePlayback\?\.acceptExport\(\)/);
+    const source = studio.slice(studio.indexOf('        const action = '), studio.indexOf('        const preview = '));
+    const calls = [];
+    const field = {dispatchEvent() {}};
+    const action = {dataset: {sectionCommand: 'job:0'}};
+    const sandbox = {
+        event: {target: {closest: () => action}},
+        document: {querySelector: () => field, getElementById: () => ({click: () => calls.push('submit')})},
+        dialog: {close: () => calls.push('close')},
+        window: {vibevoicePlayback: {start: () => calls.push('start'), acceptExport: () => calls.push('export')}},
+        requestAnimationFrame: fn => fn(), Event,
+    };
+    vm.runInNewContext('(() => {' + source + '})()', sandbox);
+    assert.deepEqual(calls.splice(0), ['start', 'close', 'submit']);
+    action.dataset.sectionCommand = 'job:export';
+    vm.runInNewContext('(() => {' + source + '})()', sandbox);
+    assert.deepEqual(calls, ['export', 'submit']);
 });

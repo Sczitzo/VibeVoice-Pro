@@ -137,6 +137,60 @@ function initComposer() {
 
     panel.addEventListener("click", () => showSpeakers(shell.dataset.panel !== "speakers"));
     document.getElementById("back-to-script").addEventListener("click", () => showSpeakers(false));
+    const refreshVoices = document.getElementById("refresh-voices");
+    if (refreshVoices && typeof BroadcastChannel === "function") {
+        const voiceUpdates = new BroadcastChannel("vibevoice-saved-voices");
+        const assignments = document.getElementById("voice-assignments");
+        const pickerSelector = 'input[aria-controls="dropdown-options"]';
+        const catalog = document.getElementById("voice-menu-catalog");
+        let refreshPending = false;
+        let closedPicker;
+        let reopen = false;
+
+        function refreshClosedMenus() {
+            if (!refreshPending || assignments.querySelector(`${pickerSelector}[aria-expanded="true"]`)) return;
+            refreshPending = false;
+            const focused = document.activeElement;
+            closedPicker = assignments.contains(focused) && focused.matches(pickerSelector) ? focused : null;
+            reopen = false;
+            refreshVoices.click();
+        }
+        voiceUpdates.addEventListener("message", () => {
+            refreshPending = true;
+            refreshClosedMenus();
+        });
+        new MutationObserver(refreshClosedMenus).observe(assignments, {
+            subtree: true, childList: true, attributes: true, attributeFilter: ["aria-expanded"],
+        });
+        assignments.addEventListener("keydown", event => {
+            if (event.target !== closedPicker) return;
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                reopen = true;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }
+            if (event.key === "Escape") reopen = false;
+        }, true);
+        new MutationObserver(() => {
+            const picker = closedPicker;
+            if (!picker) return;
+            // Gradio filters updated choices by the selected label while focused.
+            // Wait for the updated choices before using Gradio's focus handler to restore its full list.
+            setTimeout(() => {
+                if (closedPicker !== picker) return;
+                closedPicker = null;
+                if (document.activeElement !== picker) return;
+                picker.dispatchEvent(new FocusEvent("focus"));
+                if (!reopen) {
+                    picker.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+                }
+            });
+        }).observe(catalog, {subtree: true, childList: true});
+        document.getElementById("voice-recorder").addEventListener("vibevoice-voice-saved", () => {
+            voiceUpdates.postMessage("saved");
+        });
+        assignments.addEventListener("vibevoice-voices-changed", () => voiceUpdates.postMessage("changed"));
+    }
     shell.querySelector(".composer-skip").addEventListener("click", event => {
         event.preventDefault();
         showSpeakers(false);
@@ -178,8 +232,9 @@ function initComposer() {
     }
 
     document.getElementById("settings-fields-host").append(settingsFields);
-    for (const input of settingsFields.querySelectorAll("#guidance-strength input")) {
-        input.setAttribute("aria-label", "Guidance Strength");
+    const guidance = settingsFields.querySelector("#guidance-strength");
+    guidance.querySelector(".head label")?.after(document.getElementById("guidance-help"));
+    for (const input of guidance.querySelectorAll("input")) {
         input.setAttribute("aria-describedby", "guidance-tooltip");
     }
     settingsButton.addEventListener("click", () => settings.showModal());

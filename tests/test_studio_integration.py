@@ -54,8 +54,10 @@ class StudioIntegrationTests(unittest.TestCase):
         calls = self.callbacks(self.interface())
         result = list(calls['generate_podcast_wrapper'](*self.args()))[-1]
         completed = result[9]
-        _, status = calls['save_completed_take'](completed, 'Demo take')
+        rendered, status = calls['save_completed_take'](completed, 'Demo take')
         self.assertIn('Saved', status)
+        self.assertIn('Demo take', rendered)
+        self.assertIn('Demo take', calls['render_takes']())
         take = app.SavedTakes(self.root / 'takes').list()[0]
         copied = calls['open_saved_take'](take.id)
         self.assertTrue(Path(copied).is_file())
@@ -92,6 +94,9 @@ class StudioIntegrationTests(unittest.TestCase):
         rows = list(calls['generate_podcast_wrapper'](*self.args('Speaker 1: Open.\n---\nSpeaker 1: Middle.'), True))
         job = rows[-1][10]
         self.assertEqual(job.status, ['Ready', 'Failed'])
+        progress = [json.loads(row[-1])['progress'] for row in rows]
+        self.assertEqual([entry['ready'] for entry in progress if entry], [0, 1, 1, 1])
+        self.assertTrue(all(entry['total'] == 2 for entry in progress if entry))
         list(calls['section_request'](job.id + ':1', job))
         exported = list(calls['section_request'](job.id + ':export', job))[-1]
         values, _ = sf.read(exported[9][0], dtype='int16')
@@ -188,6 +193,38 @@ class StudioIntegrationTests(unittest.TestCase):
         for update in updates[:4]:
             self.assertEqual(update['choices'], ['alice', 'beta', 'Carter', 'zeta'])
             self.assertNotIn('value', update)
+        refresh = next(fn for fn in interface.fns.values()
+                       if getattr(fn.fn, '__name__', '') == 'refresh_voice_choices')
+        self.assertEqual({event for _, event in refresh.targets}, {'load', 'click'})
+        self.assertEqual(refresh.fn(['alice', 'Carter', 'zeta'])[:5], updates[:5])
+        self.assertEqual(refresh.fn(updates[4])[:5], [app.gr.skip()] * 5)
+        cleared = refresh.fn(['alice', 'Carter', 'zeta', 'Removed'], 'Removed', 'Carter')
+        self.assertIsNone(cleared[0]['value'])
+        self.assertNotIn('value', cleared[1])
+
+    def test_stale_voice_removal_preserves_same_name_replacement(self):
+        self.demo.voices_dir = self.root
+        self.demo.voice_lock = threading.Lock()
+        sf.write(self.root / 'Alice.wav', np.ones(240), 24000)
+        self.demo.setup_voice_presets()
+        name, path = self.demo.save_recorded_voice((24000, np.ones(240)), 'Sample')
+        original = path.read_bytes()
+        calls = self.callbacks(self.interface())
+        # The first tab's trash action was opened for the original recording.
+        revision = self.demo.saved_voice_catalog()[name]
+        command = f'delete:{revision}:{name}'
+        removed = calls['apply_voice_action'](command, None, name, 'Alice', None, None)
+        self.assertIsNone(removed[0]['value'])
+        self.assertEqual(removed[-2][1].read_bytes(), original)
+
+        _, path = self.demo.save_recorded_voice((24000, -np.ones(240)), name)
+        replacement = path.read_bytes()
+        self.assertNotEqual(replacement, original)
+        stale = calls['apply_voice_action'](command, None, name, 'Alice', None, None)
+        self.assertIn('Review the updated list', stale[-1])
+        self.assertEqual(path.read_bytes(), replacement)
+        self.assertIsNone(stale[-2].get('value'))
+        self.assertIn(self.demo.saved_voice_catalog()[name], stale[5])
 
     def test_generate_listener_rejects_repeat_submissions_while_pending(self):
         interface = self.interface()
@@ -198,11 +235,29 @@ class StudioIntegrationTests(unittest.TestCase):
 
     def test_generation_emits_explicit_terminal_outcome_with_file(self):
         def generate(**kwargs):
+            yield (24000, np.zeros(36000, dtype=np.int16)), None, 'Live', {}
+            yield (24000, np.zeros(36000, dtype=np.int16)), None, 'Live', {}
             yield None, str(self.wav), 'Complete', {}
         self.demo.generate_podcast_streaming = generate
         calls = self.callbacks(self.interface())
-        results = list(calls['generate_podcast_wrapper'](*self.args()))
+        clock = SimpleNamespace(monotonic=iter([100, 103, 106, 107, 108]).__next__)
+        with patch.object(app, 'time', clock):
+            results = list(calls['generate_podcast_wrapper'](*self.args()))
+            next_run = calls['generate_podcast_wrapper'](*self.args())
+            try:
+                next_progress = json.loads(next(next_run)[-1])['progress']
+            finally:
+                next_run.close()
         self.assertTrue(json.loads(results[0][-1])['running'])
+        progress = [json.loads(row[-1])['progress'] for row in results]
+        self.assertEqual(progress[0], {'percent': 0, 'eta': None})
+        self.assertEqual([entry['seconds'] for entry in progress[1:3]], [1, 3])
+        self.assertEqual(progress[1]['percent'], 75)
+        self.assertEqual(progress[1]['eta'], 1)
+        self.assertEqual(progress[2]['percent'], 95)
+        self.assertIsNone(progress[2]['eta'])
+        self.assertIsNone(progress[-1])
+        self.assertEqual(next_progress['eta'], 7)
         self.assertEqual(json.loads(results[-1][-1])['completed'], True)
         self.assertFalse(json.loads(results[-1][-1])['running'])
         self.assertEqual(results[-1][1]['value'], str(self.wav))
@@ -246,7 +301,7 @@ class StudioIntegrationTests(unittest.TestCase):
     def test_shared_interface_omits_private_operations(self):
         self.demo.share = True
         names = self.callbacks(self.interface())
-        for name in ('save_recording', 'save_completed_take', 'open_saved_take', 'section_request'):
+        for name in ('save_recording', 'apply_voice_action', 'save_completed_take', 'open_saved_take', 'section_request'):
             self.assertNotIn(name, names)
 
     def test_compact_interface_keeps_studio_controls_outside_main_layout(self):

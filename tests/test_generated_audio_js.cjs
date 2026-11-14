@@ -18,7 +18,7 @@ function harness() {
         load() {}
     }
     const audio=new Audio(), live=new Audio();
-    const ids = Object.fromEntries(['playback-toggle','playback-waveform','playback-seek','playback-title','playback-elapsed','playback-duration','download-wav'].map(k=>[k,new Element()]));
+    const ids = Object.fromEntries(['playback-toggle','playback-waveform','playback-seek','playback-title','playback-elapsed','playback-position-time','playback-duration','generation-progress','download-wav'].map(k=>[k,new Element()]));
     ids['playback-waveform'].getContext=()=>null;
     const replay=new Element(), clear=new Element(), stop={visible:false,getClientRects(){return this.visible?[{}]:[];}};
     const completed={querySelector:s=>s==='audio'?audio:s==='[data-replay-audio]'?replay:s==='[data-clear-audio]'?clear:ids[s.slice(1)]};
@@ -32,8 +32,22 @@ function harness() {
     vm.runInNewContext(source+'\ninitGeneratedAudio();',context);
     const begin=()=>{window.vibevoicePlayback.start();stop.visible=true;live.src='/new-stream';live.readyState=2;sync();};
     const finish=(url='/final.wav')=>{stop.visible=false;sync();window.vibevoicePlayback.complete({url});audio.readyState=1;audio.dispatchEvent(new Event('loadedmetadata'));};
-    return {audio,live,clear,stop,sync,begin,finish,submit:(target="generate")=>{let blocked=false;captureClick({target:{closest:selector=>target==="section" ? selector.includes("data-section-command") : true},preventDefault(){blocked=true;},stopImmediatePropagation(){}});return !blocked;},play:ids['playback-toggle'],api:window.vibevoicePlayback};
+    return {audio,live,clear,stop,sync,begin,finish,submit:(target="generate")=>{let blocked=false;captureClick({target:{closest:selector=>target==="section" ? selector.includes("data-section-command") : true},preventDefault(){blocked=true;},stopImmediatePropagation(){}});return !blocked;},play:ids['playback-toggle'],api:window.vibevoicePlayback, meter:ids['generation-progress'], duration:ids['playback-duration']};
 }
+test('estimated progress and ETA update while playback is paused and clear on Stop', () => {
+    const h = harness();
+    h.begin();
+    h.play.dispatchEvent(new Event('click'));
+    h.api.finish({running:true, progress:{seconds:8, percent:40, eta:12}}, null);
+    assert.equal(h.live.paused, true);
+    assert.equal(h.duration.textContent, '~40% · ~0:12 left');
+    assert.equal(h.meter.max, 100);
+    assert.equal(h.meter.value, 40);
+    assert.equal(h.meter.hidden, false);
+    h.api.stop();
+    h.api.finish({running:true, progress:{seconds:10}}, null);
+    assert.equal(h.meter.hidden, true);
+});
 test('paused live audio transfers elapsed position to final WAV without stopping generation',async()=>{
     const h=harness();h.begin();await Promise.resolve();h.live.currentTime=18;
     h.play.dispatchEvent(new Event('click'));

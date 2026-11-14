@@ -9,20 +9,10 @@ function initStudioAudio() {
     if (!fields) { opener.hidden = true; return; }
     document.getElementById("studio-library-fields-host").append(fields);
     if (fields.classList.contains("hidden")) { opener.hidden = true; return; }
-    const stop = document.getElementById("stop-generation");
-    const stopHere = dialog.querySelector("[data-stop-studio]");
-    const feedback = document.getElementById("generation-feedback");
-    const status = dialog.querySelector("[data-studio-status]");
-    const sync = () => {
-        stopHere.disabled = !stop || stop.disabled || stop.getClientRects().length === 0;
-        status.textContent = feedback?.getClientRects().length ? feedback.textContent : "";
-    };
-    stopHere.addEventListener("click", () => { if (!stopHere.disabled) stop.click(); });
-    const observer = new MutationObserver(sync);
-    observer.observe(app, {subtree: true, childList: true, attributes: true, characterData: true});
-    window.addEventListener("pagehide", () => observer.disconnect(), {once: true});
-    sync();
-    opener.addEventListener("click", () => dialog.showModal());
+    opener.addEventListener("click", () => {
+        dialog.showModal();
+        fields.querySelector("#refresh-takes")?.click();
+    });
     dialog.querySelector("[data-close-studio]").addEventListener("click", () => dialog.close());
     dialog.addEventListener("close", () => {
         for (const audio of dialog.querySelectorAll("audio")) audio.pause();
@@ -47,7 +37,10 @@ function initStudioAudio() {
             field.dispatchEvent(new Event("input", {bubbles: true}));
             action.disabled = true;
             if (action.dataset.sectionCommand.endsWith(":export")) window.vibevoicePlayback?.acceptExport();
-            else window.vibevoicePlayback?.start();
+            else {
+                window.vibevoicePlayback?.start();
+                dialog.close();
+            }
             requestAnimationFrame(() => send.click());
             return;
         }

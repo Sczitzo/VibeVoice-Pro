@@ -72,8 +72,10 @@ function initGeneratedAudio() {
     const play = completed.querySelector("#playback-toggle");
     const wave = completed.querySelector("#playback-waveform");
     const seek = completed.querySelector("#playback-seek");
+    const progressMeter = completed.querySelector("#generation-progress");
     const title = completed.querySelector("#playback-title");
     const elapsed = completed.querySelector("#playback-elapsed");
+    const positionTime = completed.querySelector("#playback-position-time");
     const duration = completed.querySelector("#playback-duration");
     const download = completed.querySelector("#download-wav");
     const replay = completed.querySelector("[data-replay-audio]");
@@ -91,6 +93,7 @@ function initGeneratedAudio() {
     let waveformRequest;
     let liveTransfer = null;
     let awaitingOutcome = false;
+    let generationProgress = null;
     let completionVersion = 0;
 
     const formatTime = seconds => {
@@ -167,10 +170,34 @@ function initGeneratedAudio() {
         seek.value = Math.round(progress * 1000);
         seek.setAttribute("aria-valuetext", formatTime(current) + " of " + formatTime(total));
         elapsed.textContent = formatTime(current);
-        duration.textContent = generating ? "Live" : formatTime(total);
-        title.textContent = generating
-            ? (player && player.readyState >= 2 ? "Live audio" : "Generating audio…")
-            : awaitingOutcome && !cancelled ? "Finishing audio." : hasTake ? "Last completed take" : "No audio yet";
+        const progressVisible = awaitingOutcome && requested && !cancelled;
+        const sections = progressVisible && generationProgress?.total ? generationProgress : null;
+        const seconds = progressVisible ? generationProgress?.seconds : null;
+        const percent = progressVisible ? generationProgress?.percent : null;
+        const eta = progressVisible ? generationProgress?.eta : null;
+        const remainingTime = eta > 0 ? " · ~" + formatTime(eta) + " left" : "";
+        progressMeter.hidden = !progressVisible;
+        if (sections) {
+            progressMeter.max = sections.total;
+            progressMeter.value = sections.ready;
+            progressMeter.setAttribute("aria-valuetext", sections.ready + " of " + sections.total + " sections ready");
+        } else if (percent != null) {
+            progressMeter.max = 100;
+            progressMeter.value = percent;
+            progressMeter.setAttribute("aria-valuetext", "About " + percent + " percent");
+        } else {
+            progressMeter.removeAttribute("value");
+            progressMeter.removeAttribute("aria-valuetext");
+        }
+        positionTime.hidden = Boolean(sections);
+        duration.textContent = sections ? sections.ready + " / " + sections.total + " sections" + remainingTime
+            : percent != null ? "~" + percent + "%" + remainingTime
+            : generating && seconds != null ? formatTime(seconds) + " generated"
+            : generating ? "Live" : formatTime(total);
+        const status = generating ? (percent >= 95 && eta == null ? "Taking longer…" : "Generating…")
+            : awaitingOutcome ? (cancelled ? "Stopping…" : requested ? "Starting…" : "Finishing audio…")
+            : hasTake ? "Last completed take" : "No audio yet";
+        if (title.textContent !== status) title.textContent = status;
         download.title = generating && hasTake ? "Download last completed take" : "";
         clear.disabled = generating || (awaitingOutcome && !cancelled) || !hasTake;
         replay.disabled = clear.disabled || audio.readyState < 1;
@@ -180,6 +207,7 @@ function initGeneratedAudio() {
     function finishLive() {
         rememberLivePosition();
         requested = generating = false;
+        generationProgress = null;
         silence(liveAudio);
         render();
     }
@@ -306,6 +334,7 @@ function initGeneratedAudio() {
             publishPending();
             cancelled = false;
             paused = false;
+            render();
         },
         stop() {
             cancelled = true;
@@ -330,7 +359,14 @@ function initGeneratedAudio() {
                 try { outcome = JSON.parse(outcome); }
                 catch { outcome = {running: false, completed: false}; }
             }
-            if (!outcome || outcome.running) return;
+            if (!outcome) return;
+            if (outcome.running) {
+                if (requested && !cancelled) {
+                    generationProgress = outcome.progress;
+                    render();
+                }
+                return;
+            }
             if (outcome.completed && !cancelled && this.complete(file)) return;
             finishLive();
             liveTransfer = null;
