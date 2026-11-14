@@ -47,6 +47,18 @@ class StudioIntegrationTests(unittest.TestCase):
     def args(self, script='Speaker 1: Hello.'):
         return [1, script, 'Alice', None, None, None, 1.3, 10, 42, False]
 
+    def test_voice_metadata_contains_explicit_builtin_array(self):
+        self.demo.voices_dir = self.root
+        self.demo.available_voices = {'Demo <voice>': str(self.wav)}
+        interface = app.create_demo_interface(self.demo)
+        block = next(block for block in interface.blocks.values()
+                     if getattr(block, 'elem_id', None) == 'voice-menu-catalog')
+        from html import unescape
+        import re
+        match = re.search(r'data-builtin-voice-catalog="([^"]*)"', block.value)
+        self.assertEqual(json.loads(unescape(match.group(1))), ['Demo <voice>'])
+        self.assertNotIn('<voice>', block.value)
+
     def test_normal_generation_can_be_saved_and_reopened(self):
         def generate(**kwargs):
             yield None, str(self.wav), 'Complete', {}
@@ -265,6 +277,22 @@ class StudioIntegrationTests(unittest.TestCase):
         self.assertFalse(json.loads(rejected[-1])['running'])
         self.assertFalse(json.loads(rejected[-1])['completed'])
         self.assertNotEqual(json.loads(rejected[-1])['id'], json.loads(results[-1][-1])['id'])
+        self.assertNotIn('value', rejected[1])
+
+    def test_valid_generation_resets_previous_live_stream_but_retains_completed_take(self):
+        def generate(**kwargs):
+            yield None, str(self.wav), 'Complete', {}
+        self.demo.generate_podcast_streaming = generate
+        calls = self.callbacks(self.interface())
+        for _ in range(2):
+            results = list(calls['generate_podcast_wrapper'](*self.args()))
+            initial = results[0]
+            self.assertEqual(initial[0], {'__type__': 'update', 'value': None})
+            self.assertNotIn('value', initial[1])
+            self.assertNotIn('value', initial[9])
+            self.assertEqual(results[-1][1]['value'], str(self.wav))
+        rejected = list(calls['generate_podcast_wrapper'](*self.args('')))[0]
+        self.assertIsNone(rejected[0])
         self.assertNotIn('value', rejected[1])
 
     def test_random_examples_cycle_without_overwriting_editor_on_server(self):

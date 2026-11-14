@@ -77,6 +77,7 @@ function initGeneratedAudio() {
     const elapsed = completed.querySelector("#playback-elapsed");
     const positionTime = completed.querySelector("#playback-position-time");
     const duration = completed.querySelector("#playback-duration");
+    const estimate = completed.querySelector("#generation-estimate");
     const download = completed.querySelector("#download-wav");
     const replay = completed.querySelector("[data-replay-audio]");
     const clear = completed.querySelector("[data-clear-audio]");
@@ -84,6 +85,7 @@ function initGeneratedAudio() {
     let liveAudio;
     let previousAudio;
     let previousSource;
+    let previousCurrentSource;
     let requested = false;
     let generating = false;
     let paused = false;
@@ -117,21 +119,27 @@ function initGeneratedAudio() {
         const peaks = generating ? [] : waveform;
         const max = peaks.length ? Math.max(...peaks) : 0;
         if (!max) {
-            context.fillStyle = "#82b5a2";
+            context.fillStyle = "#8b9d91";
             context.fillRect(0, height / 2, width, 1);
             return;
         }
         const spacing = width / peaks.length;
         for (let i = 0; i < peaks.length; i++) {
             const bar = Math.max(2, peaks[i] / max * height * 0.86);
-            context.fillStyle = i / peaks.length <= progress ? "#e2fff1" : "#82b5a2";
+            context.fillStyle = i / peaks.length <= progress ? "#16634b" : "#8b9d91";
             context.fillRect(i * spacing, (height - bar) / 2, Math.max(1, spacing * 0.58), bar);
         }
     }
 
     function currentLivePlayer() {
         const source = liveAudio?.getAttribute("src") || liveAudio?.currentSrc;
-        return liveAudio && source && (liveAudio !== previousAudio || source !== previousSource) ? liveAudio : null;
+        if (!liveAudio || !source) return null;
+        // Gradio can replace the element before replacing its stream. Element
+        // identity is not generation identity. Also wait while a new src still
+        // reports the preceding currentSrc during asynchronous media loading.
+        const stale = value => value && (value === previousSource || value === previousCurrentSource);
+        if (stale(source) || stale(liveAudio.currentSrc)) return null;
+        return liveAudio;
     }
 
     function publishPending() {
@@ -152,7 +160,7 @@ function initGeneratedAudio() {
     function rememberLivePosition() {
         const player = currentLivePlayer();
         if ((requested || generating) && player && Number.isFinite(player.currentTime)) {
-            liveTransfer = {position: player.currentTime, playing: !paused && player.readyState >= 2};
+            liveTransfer = {position: player.currentTime, playing: !paused && !player.ended};
         }
     }
 
@@ -175,7 +183,7 @@ function initGeneratedAudio() {
         const seconds = progressVisible ? generationProgress?.seconds : null;
         const percent = progressVisible ? generationProgress?.percent : null;
         const eta = progressVisible ? generationProgress?.eta : null;
-        const remainingTime = eta > 0 ? " · ~" + formatTime(eta) + " left" : "";
+        const remainingTime = eta > 0 ? (eta < 60 ? " · under 1 min left" : " · about " + Math.ceil(eta / 60) + " min left") : "";
         progressMeter.hidden = !progressVisible;
         if (sections) {
             progressMeter.max = sections.total;
@@ -189,11 +197,14 @@ function initGeneratedAudio() {
             progressMeter.removeAttribute("value");
             progressMeter.removeAttribute("aria-valuetext");
         }
-        positionTime.hidden = Boolean(sections);
-        duration.textContent = sections ? sections.ready + " / " + sections.total + " sections" + remainingTime
-            : percent != null ? "~" + percent + "%" + remainingTime
-            : generating && seconds != null ? formatTime(seconds) + " generated"
-            : generating ? "Live" : formatTime(total);
+        positionTime.hidden = progressVisible;
+        estimate.hidden = !progressVisible;
+        estimate.textContent = sections ? sections.ready + " of " + sections.total + " sections ready" + remainingTime
+            : percent != null ? "Estimated " + percent + "%" + remainingTime
+            : seconds != null ? formatTime(seconds) + " audio generated" : "Estimating time remaining";
+        duration.textContent = progressVisible ? "Preview " + formatTime(current) : formatTime(total);
+        play.setAttribute("aria-label", label + (progressVisible ? " live preview" : " audio"));
+        play.setAttribute("title", label + (progressVisible ? " live preview" : " audio"));
         const status = generating ? (percent >= 95 && eta == null ? "Taking longer…" : "Generating…")
             : awaitingOutcome ? (cancelled ? "Stopping…" : requested ? "Starting…" : "Finishing audio…")
             : hasTake ? "Last completed take" : "No audio yet";
@@ -328,6 +339,7 @@ function initGeneratedAudio() {
             audio.pause();
             previousAudio = liveRegion.querySelector("audio");
             previousSource = previousAudio?.getAttribute("src") || previousAudio?.currentSrc;
+            previousCurrentSource = previousAudio?.currentSrc;
             silence(previousAudio);
             requested = true;
             awaitingOutcome = true;

@@ -351,6 +351,22 @@ class VibeVoiceDemo:
                 if Path(path).parent == recorded and Path(path).suffix.lower() == ".wav"
                 and (revision := self.voice_revision(path)) is not None}
 
+    def builtin_voice_catalog(self):
+        """Names whose actual files live directly in the bundled preset root."""
+        root = getattr(self, "voices_dir", None)
+        if root is None:
+            return []
+        root = Path(root).resolve()
+        names = []
+        for name, path in self.available_voices.items():
+            try:
+                actual = Path(path).resolve(strict=True)
+                if actual.parent == root and actual.is_file():
+                    names.append(name)
+            except (OSError, RuntimeError):
+                continue
+        return sorted(names, key=str.casefold)
+
     def change_saved_voice(self, name, *, revision=None, restore_from=None):
         if getattr(self, "share", False):
             raise gr.Error("Saved voices can only be removed on this computer.")
@@ -972,38 +988,41 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
     """Create the Gradio interface with streaming support."""
 
     demo_dir = Path(__file__).parent
+    import base64
+    brand_mark = "data:image/svg+xml;base64," + base64.b64encode((demo_dir / "assets" / "voice-fold.svg").read_bytes()).decode("ascii")
     recorder_js = (demo_dir / "voice_recorder.js").read_text(encoding="utf-8")
     browser_js = "\n".join((recorder_js, *((demo_dir / name).read_text(encoding="utf-8")
-                                         for name in ("composer.js", "voice_menu.js", "script_check.js", "generated_audio.js", "studio_audio.js"))))
-    css = (demo_dir / "eucalyptus.css").read_text(encoding="utf-8")
-    theme = gr.themes.Base(primary_hue=gr.themes.colors.teal, font=["Inter", "Segoe UI", "sans-serif"])
+                                         for name in ("composer.js", "voice_menu.js", "script_check.js", "generated_audio.js", "studio_audio.js", "writing_studio.js"))))
+    css = (demo_dir / "eucalyptus.css").read_text(encoding="utf-8") + "\n" + (demo_dir / "writing_studio.css").read_text(encoding="utf-8")
+    theme = gr.themes.Base(primary_hue=gr.themes.colors.teal, font=["Segoe UI", "Arial", "sans-serif"])
     private_features = not getattr(demo_instance, "share", False)
     takes = SavedTakes(takes_directory()) if private_features else None
     recorder_setup = "initVoiceRecorder();initVoiceMenu();" if private_features else "document.getElementById('open-voice-recorder').hidden = true;"
 
     def render_saved_voice_catalog(catalog):
         data = escape(json.dumps(catalog), quote=True)
-        return f'<span data-saved-voice-catalog="{data}" data-update="{uuid4().hex}"></span>'
+        builtin = escape(json.dumps(demo_instance.builtin_voice_catalog()), quote=True)
+        return f'<span data-saved-voice-catalog="{data}" data-builtin-voice-catalog="{builtin}" data-update="{uuid4().hex}"></span>'
 
     with AudioStreamBlocks(title="VibeVoice", theme=theme, css=css,
-                   js="() => {" + browser_js + "\n" + recorder_setup + "initComposer();initScriptCheck();initGeneratedAudio();initStudioAudio();}") as interface:
+                   js="() => {" + browser_js + "\n" + recorder_setup + "initComposer();initScriptCheck();initGeneratedAudio();initStudioAudio();initWritingStudio();}") as interface:
         with gr.Column(elem_id="guided-composer"):
             gr.HTML("""
                 <header class="composer-header">
                     <a class="composer-skip" href="#composer-editor">Skip to Script</a>
                     <div class="composer-brand">
-                        <span class="composer-brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-                        <div><h1>VibeVoice</h1><span>Guided Composer</span></div>
+
+                        <img class="voice-brand-mark" src="__BRAND_MARK__" alt="" width="32" height="32"><h1 aria-label="VibeVoice"><span class="brand-vibe" aria-hidden="true">Vibe</span><span class="brand-voice" aria-hidden="true">Voice</span></h1>
                     </div>
                     <div class="composer-header-actions">
                         <button type="button" id="show-speakers" class="composer-button mobile-only"
                                 aria-controls="composer-speakers" aria-expanded="false">Speakers</button>
-                        <button type="button" id="open-studio-library" class="composer-button" aria-haspopup="dialog">Takes &amp; Sections</button>
+                        <button type="button" id="open-studio-library" class="composer-button" aria-haspopup="dialog">Takes</button>
                         <button type="button" id="open-voice-recorder" class="composer-button"
                                 aria-haspopup="dialog">Create Voice</button>
                     </div>
                 </header>
-            """, elem_id="composer-header", padding=False)
+            """.replace("__BRAND_MARK__", brand_mark), elem_id="composer-header", padding=False)
 
             with gr.Row(elem_id="composer-grid"):
                 with gr.Column(elem_id="composer-script"):
@@ -1014,6 +1033,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                             gr.HTML('<button type="button" id="undo-script" class="composer-button" hidden title="Undo last script change (Ctrl+Z)">Undo</button>', padding=False)
                             check_script_btn = gr.Button("Check Script", elem_id="check-script")
                             gr.HTML('<span id="word-count">0 words</span>', padding=False)
+                        gr.HTML('<div class="manuscript-divider"><input id="manuscript-title" aria-label="Session title" placeholder="Untitled session" maxlength="100" autocomplete="off"></div>', elem_id="manuscript-title-row", padding=False)
                     with gr.Column(elem_id="editor-frame"):
                         gr.HTML("""
                             <div id="speaker-chips" aria-label="Insert a speaker label">
@@ -1096,6 +1116,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                                 </span>
                                 <span class="track-time"><span id="playback-position-time"><span id="playback-elapsed">0:00</span> / </span><span id="playback-duration">0:00</span></span>
                             </div>
+                            <div id="generation-estimate" hidden></div>
                             <div class="transport-wave transport-waveform">
                                 <progress id="generation-progress" aria-label="Audio generation progress" hidden></progress>
                                 <canvas id="playback-waveform" width="480" height="32" aria-hidden="true"></canvas>
@@ -1107,7 +1128,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                 """, elem_id="playback-transport", padding=False)
                 with gr.Column(elem_id="composer-actions"):
                     generate_btn = gr.Button("Generate Audio", variant="primary", elem_id="generate-audio")
-                    stop_btn = gr.Button("Stop", visible=False, elem_id="stop-generation")
+                    stop_btn = gr.Button("Stop generation", visible=False, elem_id="stop-generation")
 
         audio_output = gr.Audio(label="Live Audio", type="numpy", streaming=True, autoplay=False,
                                 show_download_button=False, elem_id="live-generated-audio")
@@ -1513,7 +1534,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
             return (
                 live, gr.update(value=completed[0]) if completed else gr.skip(), log,
                 gr.update(visible=streaming), gr.update(visible=not running),
-                gr.update(visible=running, interactive=True, value="Stop"),
+                gr.update(visible=running, interactive=True, value="Stop generation"),
                 gr.update(value=warning, visible=bool(warning)),
                 *(feedback if feedback is not None else (gr.skip(), gr.skip())),
                 completed if completed else gr.skip(), job if job is not None else gr.skip(),
@@ -1620,6 +1641,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                     initial_eta = math.ceil(expected_seconds * compute_per_second)
                 started = time.monotonic()
                 yield generation_update("Starting generation…", running=True, feedback=feedback,
+                                        live=gr.update(value=None),
                                         progress={"percent": 0, "eta": initial_eta})
                 final_log = "Starting generation…"
                 completed = None
