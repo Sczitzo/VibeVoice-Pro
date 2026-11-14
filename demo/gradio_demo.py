@@ -351,6 +351,22 @@ class VibeVoiceDemo:
                 if Path(path).parent == recorded and Path(path).suffix.lower() == ".wav"
                 and (revision := self.voice_revision(path)) is not None}
 
+    def builtin_voice_catalog(self):
+        """Names whose actual files live directly in the bundled preset root."""
+        root = getattr(self, "voices_dir", None)
+        if root is None:
+            return []
+        root = Path(root).resolve()
+        names = []
+        for name, path in self.available_voices.items():
+            try:
+                actual = Path(path).resolve(strict=True)
+                if actual.parent == root and actual.is_file():
+                    names.append(name)
+            except (OSError, RuntimeError):
+                continue
+        return sorted(names, key=str.casefold)
+
     def change_saved_voice(self, name, *, revision=None, restore_from=None):
         if getattr(self, "share", False):
             raise gr.Error("Saved voices can only be removed on this computer.")
@@ -985,7 +1001,8 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
 
     def render_saved_voice_catalog(catalog):
         data = escape(json.dumps(catalog), quote=True)
-        return f'<span data-saved-voice-catalog="{data}" data-update="{uuid4().hex}"></span>'
+        builtin = escape(json.dumps(demo_instance.builtin_voice_catalog()), quote=True)
+        return f'<span data-saved-voice-catalog="{data}" data-builtin-voice-catalog="{builtin}" data-update="{uuid4().hex}"></span>'
 
     with AudioStreamBlocks(title="VibeVoice", theme=theme, css=css,
                    js="() => {" + browser_js + "\n" + recorder_setup + "initComposer();initScriptCheck();initGeneratedAudio();initStudioAudio();initWritingStudio();}") as interface:

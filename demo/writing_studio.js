@@ -20,6 +20,8 @@ function initWritingStudio() {
         if (control?.setAttribute) { control.setAttribute('title', name); control.setAttribute('aria-label', name); }
     }
     initCastDisclosure();
+    initVoiceInputPresentation();
+    initAudioLegend();
     const editor = document.querySelector('#composer-editor textarea');
     if (!editor) return;
     const layer = document.createElement('pre');
@@ -121,4 +123,43 @@ function initWritingStudioAutosize(editor, paint) {
         }
     }
     schedule();
+}
+
+// Voice identifiers are searchable names, not prose. Keep browser spelling aids
+// from implying that a valid selected voice is an error. Never change its value.
+function initVoiceInputPresentation() {
+    const host = document.getElementById('voice-assignments');
+    if (!host?.querySelectorAll) return;
+    const apply = () => {
+        for (const input of host.querySelectorAll('input')) {
+            input.setAttribute('spellcheck', 'false');
+            input.setAttribute('autocorrect', 'off');
+            input.setAttribute('autocapitalize', 'none');
+        }
+    };
+    // The chevron shares the input's native dropdown, without a second tab stop.
+    host.addEventListener?.('pointerdown', event => {
+        const arrow = event.target.closest?.('.icon-wrap');
+        const input = arrow?.closest('.speaker-item')?.querySelector('input');
+        if (!input || event.button !== 0) return;
+        event.preventDefault(); event.stopPropagation();
+        const open = input.getAttribute('aria-expanded') === 'true';
+        input.focus();
+        if (!open) input.dispatchEvent(new FocusEvent("focus"));
+        input.dispatchEvent(new KeyboardEvent('keydown', {key:open ? 'Escape' : 'ArrowDown', code:open ? 'Escape' : 'ArrowDown', bubbles:true}));
+    });
+    host.addEventListener?.('keydown', event => {
+        const input = event.target;
+        if (input.matches?.('input[aria-controls="dropdown-options"]') && input.getAttribute('aria-expanded') === 'false' && ['ArrowDown', 'ArrowUp'].includes(event.key)) input.dispatchEvent(new FocusEvent('focus'));
+    });
+    apply();
+    if (typeof MutationObserver !== 'undefined') new MutationObserver(apply).observe(host, {childList:true, subtree:true});
+}
+
+function initAudioLegend() {
+    const dock = document.getElementById('composer-transport');
+    if (!dock || document.getElementById('audio-section-label')) return;
+    const label = document.createElement('h2');
+    label.id = 'audio-section-label'; label.textContent = 'Audio';
+    dock.prepend(label); dock.setAttribute('aria-labelledby', label.id);
 }

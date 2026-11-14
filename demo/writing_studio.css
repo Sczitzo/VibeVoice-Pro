@@ -467,3 +467,41 @@ html:has(#guided-composer),body:has(#guided-composer) { height:100%; margin:0; }
 @media(max-width:660px) { #guided-composer #composer-speakers #voice-assignments > .form { grid-template-columns:minmax(0,1fr); max-width:390px; } }
 #guided-composer #composer-speakers #voice-assignments .speaker-item [data-testid="block-info"]::before { display:none; }
 #guided-composer #composer-speakers #voice-assignments .speaker-item .icon-wrap { align-self:center; transform:none!important; top:auto!important; margin:0!important; height:14px; }
+/* The assignment is one control: equal-height marker and field, one focus ring. */
+#guided-composer #composer-speakers #voice-assignments .speaker-item > .container { padding:4px 7px; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item > .container::before { width:24px; height:24px; flex-basis:24px; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item > .container > .wrap { height:24px!important; min-height:24px!important; padding-block:0!important; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item :is(.wrap-inner,.secondary-wrap) { height:24px!important; min-height:24px!important; align-items:center!important; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item input,
+#guided-composer #composer-speakers #voice-assignments .speaker-item input:focus,
+#guided-composer #composer-speakers #voice-assignments .speaker-item input:focus-visible { height:24px!important; min-height:24px!important; padding-block:0!important; border:0!important; outline:0!important; box-shadow:none!important; line-height:24px!important; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item .icon-wrap { display:flex!important; justify-content:center!important; align-items:center!important; align-self:center!important; height:24px!important; min-height:24px!important; width:18px!important; flex:0 0 18px!important; transform:none!important; inset:auto!important; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item .icon-wrap svg { display:block; width:18px; height:18px; margin:0; transform:none; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item > .container::before { width:24px!important; height:24px!important; flex-basis:24px!important; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item:focus-within > .container { box-shadow:inset 0 0 0 1.5px var(--accent); }
+#guided-composer #composer-speakers #voice-assignments .speaker-item input { padding-inline:0!important; }
+@media(forced-colors:active) {
+ #guided-composer #composer-speakers #voice-assignments .speaker-item:focus-within { outline:2px solid Highlight!important; outline-offset:-2px!important; }
+ #guided-composer #composer-speakers #voice-assignments .speaker-item > .container::before { border:1px solid CanvasText; box-sizing:border-box; }
+}
+
+/* Compact assignments and a clearly labelled audio control group. */
+#guided-composer #composer-speakers #voice-assignments .speaker-item [data-testid="block-info"] { position:absolute; width:1px; height:1px; clip-path:inset(50%); overflow:hidden; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item input { font-family:"Segoe UI",Arial,sans-serif; font-size:12px; font-weight:700; color:var(--muted); }
+#guided-composer #composer-speakers #voice-assignments .speaker-item .icon-wrap { width:24px!important; flex-basis:24px!important; cursor:pointer; pointer-events:auto!important; }
+#guided-composer #composer-transport { position:relative; border:0!important; box-shadow:none; padding-top:20px!important; }
+#guided-composer #composer-transport::before { content:""; position:absolute; inset:0; border:1px solid var(--divider); border-radius:16px; pointer-events:none; clip-path:polygon(0 0,28px 0,28px 12px,88px 12px,88px 0,100% 0,100% 100%,0 100%); }
+#guided-composer #audio-section-label { position:absolute; left:38px; top:-10px; margin:0; padding:0; font:700 16px/20px "Segoe UI",Arial,sans-serif; color:var(--ink); background:transparent; }
+#guided-composer #composer-transport #generate-audio { display:inline-flex!important; align-items:center; justify-content:center; gap:8px; width:auto!important; min-width:0!important; height:36px!important; min-height:36px!important; padding:0 12px!important; border-radius:8px!important; font-size:13px!important; line-height:20px!important; }
+#guided-composer #generate-audio::before { content:""; width:16px; height:16px; flex:none; background:currentColor; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4'/%3E%3C/svg%3E") center/contain no-repeat; }
+#guided-composer #composer-transport #playback-toggle { position:relative; width:36px!important; min-width:36px!important; height:36px!important; min-height:36px!important; padding:0!important; border-radius:50%!important; font-size:0!important; }
+#guided-composer #playback-toggle::before { content:""; position:absolute; inset:9px; background:currentColor; clip-path:polygon(25% 8%,90% 50%,25% 92%); }
+#guided-composer #playback-toggle[aria-label^="Pause"]::before { clip-path:polygon(15% 10%,40% 10%,40% 90%,15% 90%,15% 10%,60% 10%,85% 10%,85% 90%,60% 90%,60% 10%); }
+#guided-composer #composer-transport #generated-audio-player { grid-template-columns:36px minmax(0,1fr) auto; gap:10px; }
+#guided-composer #composer-transport #generated-audio-player:has(#download-wav[aria-disabled=true]) { grid-template-columns:36px minmax(0,1fr); }
+#voice-assignments ul.has-preset-disclosure { padding-top:38px!important; }
+#voice-assignments .preset-disclosure { z-index:1001; height:28px; min-height:28px; padding:3px 8px; border:0; border-radius:5px; background:#e9eee6; color:#294a3d; font:600 12px/20px "Segoe UI",Arial,sans-serif; text-align:left; cursor:pointer; }
+#voice-assignments .builtin-preset { padding-left:24px; }
+#voice-assignments .builtin-preset[hidden] { display:none!important; }
+
+#guided-composer #voice-assignments .preset-disclosure { z-index:2147483647!important; height:28px!important; min-height:28px!important; padding:3px 8px!important; margin:0!important; font-size:12px!important; line-height:20px!important; }

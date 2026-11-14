@@ -47,6 +47,18 @@ class StudioIntegrationTests(unittest.TestCase):
     def args(self, script='Speaker 1: Hello.'):
         return [1, script, 'Alice', None, None, None, 1.3, 10, 42, False]
 
+    def test_voice_metadata_contains_explicit_builtin_array(self):
+        self.demo.voices_dir = self.root
+        self.demo.available_voices = {'Demo <voice>': str(self.wav)}
+        interface = app.create_demo_interface(self.demo)
+        block = next(block for block in interface.blocks.values()
+                     if getattr(block, 'elem_id', None) == 'voice-menu-catalog')
+        from html import unescape
+        import re
+        match = re.search(r'data-builtin-voice-catalog="([^"]*)"', block.value)
+        self.assertEqual(json.loads(unescape(match.group(1))), ['Demo <voice>'])
+        self.assertNotIn('<voice>', block.value)
+
     def test_normal_generation_can_be_saved_and_reopened(self):
         def generate(**kwargs):
             yield None, str(self.wav), 'Complete', {}

@@ -57,8 +57,9 @@ function initVoiceMenu() {
     const observer = new MutationObserver(paint);
     observer.observe(assignments, {subtree: true, childList: true, attributes: true,
         attributeFilter: ["aria-label", "aria-expanded"]});
-    observer.observe(catalog, {subtree: true, childList: true});
+    observer.observe(catalog, {subtree: true, childList: true, attributes: true, attributeFilter: ["data-saved-voice-catalog", "data-update"]});
     paint();
+    initPresetGroups(assignments, catalog);
 
     function arm(row) {
         const name = row.getAttribute("aria-label");
@@ -78,7 +79,7 @@ function initVoiceMenu() {
 
     function submit(command, input) {
         if (request) return;
-        request = {input, reopen: input?.getAttribute("aria-expanded") === "true" || command === "undo"};
+        request = {previousUpdate: document.querySelector("[data-voice-result]")?.dataset.update, input, reopen: input?.getAttribute("aria-expanded") === "true" || command === "undo"};
         input?.blur();
         disarm();
         undo.disabled = true;
@@ -159,6 +160,47 @@ function initVoiceMenu() {
     const resultField = document.getElementById("voice-menu-result");
     new MutationObserver(() => {
         const payload = resultField.querySelector("[data-voice-result]")?.dataset.voiceResult;
-        if (payload) window.vibevoiceVoiceMenu.finish(JSON.parse(payload));
-    }).observe(resultField, {subtree: true, childList: true});
+        if (payload && voiceMenuResultIsNew(resultField.querySelector("[data-voice-result]")?.dataset.update, request?.previousUpdate)) window.vibevoiceVoiceMenu.finish(JSON.parse(payload));
+    }).observe(resultField, {subtree: true, childList: true, attributes: true, attributeFilter: ["data-voice-result", "data-update"]});
 }
+
+// Native Gradio options retain their identity and selection handlers.
+function initPresetGroups(assignments, catalog) {
+ const states=new WeakMap();
+ const selector='input[aria-controls="dropdown-options"]';
+ function paint(){
+  const names=new Set(JSON.parse(catalog.querySelector('[data-builtin-voice-catalog]')?.dataset.builtinVoiceCatalog||'[]'));
+  for(const item of assignments.querySelectorAll('.speaker-item')){
+   const input=item.querySelector(selector),list=item.querySelector('ul[role="listbox"]');
+   let button=item.querySelector('.preset-disclosure');
+   if(!list||input?.getAttribute('aria-expanded')!=='true'){button?.remove();states.delete(item);continue;}
+   let state=states.get(item);if(!state){state={list,expanded:false};states.set(item,state);}else state.list=list;
+   const rows=[...list.querySelectorAll('[data-testid="dropdown-option"]')];
+   if(!rows.some(r=>names.has(r.getAttribute('aria-label')))){button?.remove();list.classList.remove('has-preset-disclosure');continue;}
+   if(!button){
+    button=document.createElement('button');button.type='button';button.className='preset-disclosure';button.tabIndex=-1;
+    button.addEventListener('mousedown',e=>e.preventDefault());
+    button.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const current=states.get(item);if(current)current.expanded=!current.expanded;paint();});list.after(button);
+   }
+   list.classList.add('has-preset-disclosure');
+   if(!list.id)list.id=item.id+'-voice-options';button.setAttribute('aria-controls',list.id);
+   const text='Built-in presets '+(state.expanded?'−':'+');if(button.textContent!==text)button.textContent=text;
+   if(button.getAttribute('aria-expanded')!==String(state.expanded))button.setAttribute('aria-expanded',String(state.expanded));
+   button.title='Built-in presets. Right arrow expands; left arrow collapses.';
+   const r=list.getBoundingClientRect();button.style.cssText=`position:fixed;left:${r.left+6}px;top:${r.top+5}px;width:${r.width-12}px;`;
+   for(const row of rows){const preset=names.has(row.getAttribute('aria-label'));row.classList.toggle('builtin-preset',preset);row.hidden=preset&&!state.expanded;}
+   input.setAttribute('aria-description','Right arrow expands Built-in presets; left arrow collapses. Typing or arrow navigation searches all voices.');
+  }
+ }
+ assignments.addEventListener('keydown',e=>{
+  if(!e.target.matches(selector)||e.target.getAttribute('aria-expanded')!=='true')return;const state=states.get(e.target.closest('.speaker-item'));if(!state)return;
+  if(['ArrowRight','ArrowLeft'].includes(e.key)){state.expanded=e.key==='ArrowRight';e.preventDefault();e.stopImmediatePropagation();paint();}
+  else if(['ArrowDown','ArrowUp','Home','End','Enter'].includes(e.key)&&!state.expanded){state.expanded=true;paint();if(e.key==='Enter'){e.preventDefault();e.stopImmediatePropagation();}}
+ },true);
+ assignments.addEventListener('input',e=>{const state=states.get(e.target.closest('.speaker-item'));if(state){state.expanded=true;paint();}});
+ new MutationObserver(paint).observe(assignments,{subtree:true,childList:true,attributes:true,attributeFilter:['aria-expanded']});
+ new MutationObserver(paint).observe(catalog,{subtree:true,childList:true,attributes:true,attributeFilter:['data-builtin-voice-catalog','data-update']});
+ window.addEventListener('resize',paint);window.addEventListener('scroll',paint,true);
+}
+
+function voiceMenuResultIsNew(update, previous) { return Boolean(update) && update !== previous; }

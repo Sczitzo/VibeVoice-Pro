@@ -2,11 +2,13 @@
 
 **Write a conversation. Choose the voices. Listen, refine, and save.**
 
-VibeVoice Pro is a local, browser-based workspace for creating spoken audio from text with the VibeVoice models. Its compact Guided Composer brings the script, up to four speakers, and playback into one view.
+VibeVoice Pro is a local, browser-based workspace for creating spoken audio from text with the VibeVoice models. Its Writing Studio brings the script, up to four speakers, and playback into one view.
 
 This is an independent community fork, not an official Microsoft product or hosted voice service. It builds on [VibeVoice Community](https://github.com/vibevoice-community/VibeVoice) and Microsoft's original VibeVoice research and implementation.
 
-![VibeVoice Pro Guided Composer with script editor, speaker assignments, and audio playback controls](docs/images/composer.jpg)
+![Writing Studio with speaker assignments, a script editor, and a pinned Audio panel](docs/images/writing-studio.jpg)
+
+[See the compact layout](docs/images/writing-studio-compact.jpg) · [Read the Writing Studio guide](docs/WRITING-STUDIO.md)
 
 ## Where this fork fits
 
@@ -23,9 +25,9 @@ This is an independent community fork, not an official Microsoft product or host
 
 | Area | Inherited foundation | VibeVoice Pro's changes |
 | --- | --- | --- |
-| Speech generation | Long-form TTS, up to four speakers, reference-voice conditioning | A compact Guided Composer, clearer speaker assignment, script checks, and reversible example cycling |
+| Speech generation | Long-form TTS, up to four speakers, reference-voice conditioning | A responsive Writing Studio, clearer speaker assignment, script checks, and reversible example cycling |
 | Listening | The community demo already streamed generated audio and had a stop control | Separate listening from generation; carry playback position and pause state into the finished WAV; protect against duplicate requests |
-| Voice references | Existing model support for reference audio and bundled voice samples | A guided microphone recorder and WAV-range import, with review and naming before saving |
+| Voice references | Existing model support for reference audio and bundled voice samples | A guided microphone recorder and WAV-range import; saved voices are separate from protected built-in presets |
 | Completed work | Generated audio output | A local Saved Takes library and optional section retry/export workflow |
 | Reliability and setup | Community inference, device support, and setup | Windows launcher, session-focused checks, stream-polling fixes, and Python/JavaScript regression tests |
 | Training and other models | Community fine-tuning and additional model tools | Retained technical references, **not** newly integrated training or ASR features in the composer |
@@ -36,7 +38,7 @@ This is an independent community fork, not an official Microsoft product or host
 
 ## What you can do
 
-- **Write for 1–4 speakers.** Assign voices from alphabetized lists, insert speaker labels, and check the script before generating.
+- **Write for 1–4 speakers.** Assign voices, insert speaker labels, and check the script before generating. The editor grows with your script until it reaches the window limit, then scrolls inside the editor.
 - **Try an example without losing your draft.** Random Example cycles through examples. Undo restores earlier script changes, including overwritten drafts; keyboard undo and redo work too.
 - **Listen as audio is generated.** Pause listening without stopping generation. When the final WAV is ready, playback carries over your position and playing or paused state.
 - **Stop and try again.** Stop cancels the active generation. Rejected or cancelled attempts preserve the previous completed take.
@@ -93,6 +95,8 @@ On Linux/macOS, create a Python 3.11 virtual environment, install the editable p
 Open **Create Voice**, choose your microphone, and record the reading prompt. Allow browser microphone access when you are ready. Stop, listen, and save with a new name. A saved voice appears in the speaker lists; saving it does not change your existing speaker assignments.
 
 For **Import audio**, choose a mono or stereo WAV no longer than **60 seconds** and no larger than **32 MiB**. Select the start and end of the range, preview it, then name and save the voice. Use clean speech with minimal background noise. Only use recordings you have permission to use.
+
+Saved voices appear directly in the speaker picker. Expand **Built-in presets** to see the samples that ship with the app; those cannot be deleted. To remove a saved voice, use its actions menu. The list updates without reloading the page, and the removal notice offers **Undo**.
 
 ### Generate in sections (preview)
 

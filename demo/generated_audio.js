@@ -204,6 +204,7 @@ function initGeneratedAudio() {
             : seconds != null ? formatTime(seconds) + " audio generated" : "Estimating time remaining";
         duration.textContent = progressVisible ? "Preview " + formatTime(current) : formatTime(total);
         play.setAttribute("aria-label", label + (progressVisible ? " live preview" : " audio"));
+        play.setAttribute("title", label + (progressVisible ? " live preview" : " audio"));
         const status = generating ? (percent >= 95 && eta == null ? "Taking longer…" : "Generating…")
             : awaitingOutcome ? (cancelled ? "Stopping…" : requested ? "Starting…" : "Finishing audio…")
             : hasTake ? "Last completed take" : "No audio yet";

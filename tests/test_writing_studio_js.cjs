@@ -51,3 +51,27 @@ test('autosize measures offscreen without touching text, caret or scroll and coa
  natural=20;editor.dispatchEvent(new Event('input'));frame();assert.equal(props['--editor-height'],'72px');
  assert.equal(editor.value,'Speaker 1: unchanged'); assert.equal(editor.selectionStart,5);assert.equal(editor.selectionEnd,9);assert.equal(editor.scrollTop,41);assert.equal(paints,3);
 });
+
+test('voice spelling aids are scoped and reapplied without altering filtering or selection',()=>{
+ let onMutation, inputs=[];
+ const first={value:'en-Alice_woman',selectionStart:4,attrs:{},setAttribute(k,v){this.attrs[k]=v;}};
+ inputs.push(first); const host={querySelectorAll:()=>inputs};
+ const ctx={document:{getElementById:id=>id==='voice-assignments'?host:null},MutationObserver:class{constructor(fn){onMutation=fn;}observe(){}}};
+ vm.runInNewContext(source,ctx);ctx.initVoiceInputPresentation();
+ assert.deepEqual(first.attrs,{spellcheck:'false',autocorrect:'off',autocapitalize:'none'});
+ assert.equal(first.value,'en-Alice_woman');assert.equal(first.selectionStart,4);
+ const replacement={value:'Custom voice',attrs:{},setAttribute(k,v){this.attrs[k]=v;}};
+ inputs=[replacement];onMutation();assert.equal(replacement.attrs.spellcheck,'false');assert.equal(replacement.value,'Custom voice');
+});
+
+test('voice chevron opens and closes existing input without another tab stop',()=>{
+ let handler, key, focused=0, open=false;
+ const input={getAttribute:()=>String(open),focus(){focused++;},dispatchEvent:e=>key=e.key};
+ const arrow={closest:()=>({querySelector:()=>input})};
+ const host={querySelectorAll:()=>[],addEventListener:(name,fn)=>{if(name==='pointerdown')handler=fn;}};
+ const ctx={document:{getElementById:()=>host},FocusEvent:class{},KeyboardEvent:class{constructor(type,opts){Object.assign(this,opts);}}};
+ vm.runInNewContext(source,ctx);ctx.initVoiceInputPresentation();
+ const e={target:{closest:()=>arrow},button:0,preventDefault(){},stopPropagation(){}};
+ handler(e);assert.equal(key,'ArrowDown');assert.equal(focused,1);
+ open=true;handler(e);assert.equal(key,'Escape');assert.equal(focused,2);
+});

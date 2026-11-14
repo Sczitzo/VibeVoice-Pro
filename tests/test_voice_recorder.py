@@ -24,6 +24,18 @@ class VoiceRecorderTests(unittest.TestCase):
         sf.write(self.existing, self.samples, 24000, subtype="PCM_16")
         self.demo.available_voices = {"Existing": str(self.existing)}
 
+    def test_builtin_catalog_uses_real_root_not_saved_catalog_complement(self):
+        self.demo.save_recorded_voice((24000, self.samples), "Saved sample")
+        self.demo.available_voices["Missing"] = str(self.demo.voices_dir / "missing.wav")
+        nested = self.demo.voices_dir / "other"
+        nested.mkdir()
+        elsewhere = nested / "external.wav"
+        sf.write(elsewhere, self.samples, 24000)
+        self.demo.available_voices["External"] = str(elsewhere)
+        with patch.object(self.demo, "saved_voice_catalog", return_value={}):
+            self.assertEqual(self.demo.builtin_voice_catalog(), ["Existing"])
+        self.assertEqual(VibeVoiceDemo.__new__(VibeVoiceDemo).builtin_voice_catalog(), [])
+
     def test_remove_and_restore_preserve_the_recording_and_built_in_voice(self):
         name, path = self.demo.save_recorded_voice((24000, self.samples), "Studio sample")
         original = path.read_bytes()

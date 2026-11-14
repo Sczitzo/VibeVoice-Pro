@@ -152,6 +152,7 @@ function initComposer() {
         const catalog = document.getElementById("voice-menu-catalog");
         let refreshPending = false;
         let closedPicker;
+        let priorCatalogUpdate;
         let reopen = false;
 
         function refreshClosedMenus() {
@@ -160,6 +161,8 @@ function initComposer() {
             const focused = document.activeElement;
             closedPicker = assignments.contains(focused) && focused.matches(pickerSelector) ? focused : null;
             reopen = false;
+            closedPicker?.blur();
+            priorCatalogUpdate = catalog.querySelector("[data-saved-voice-catalog]")?.dataset.update;
             refreshVoices.click();
         }
         voiceUpdates.addEventListener("message", () => {
@@ -180,19 +183,20 @@ function initComposer() {
         }, true);
         new MutationObserver(() => {
             const picker = closedPicker;
-            if (!picker) return;
+            if (!picker || catalog.querySelector("[data-saved-voice-catalog]")?.dataset.update === priorCatalogUpdate) return;
             // Gradio filters updated choices by the selected label while focused.
             // Wait for the updated choices before using Gradio's focus handler to restore its full list.
             setTimeout(() => {
                 if (closedPicker !== picker) return;
                 closedPicker = null;
-                if (document.activeElement !== picker) return;
+                if (document.activeElement !== picker && document.activeElement !== document.body) return;
+                picker.focus();
                 picker.dispatchEvent(new FocusEvent("focus"));
                 if (!reopen) {
                     picker.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
                 }
             });
-        }).observe(catalog, {subtree: true, childList: true});
+        }).observe(catalog, {subtree: true, childList: true, attributes: true, attributeFilter: ["data-saved-voice-catalog", "data-update"]});
         document.getElementById("voice-recorder").addEventListener("vibevoice-voice-saved", () => {
             voiceUpdates.postMessage("saved");
         });
