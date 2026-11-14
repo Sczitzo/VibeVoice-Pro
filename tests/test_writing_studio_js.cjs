@@ -29,3 +29,25 @@ test('cast disclosure preserves expansion, count, keyboard and focused resize',(
  media.matches=false;mediaChange();assert.equal(button.attrs['aria-expanded'],'true');
  doc.activeElement=count;media.matches=true;mediaChange();assert.equal(button.attrs['aria-expanded'],'true');assert.equal(doc.activeElement,count);
 });
+
+test('editor grows and shrinks with text, capped to remaining viewport',()=>{
+ const h=setup(); const size=(n,a)=>vm.runInNewContext(`writingStudioEditorHeight(${n},${a})`,h.context);
+ assert.equal(size(30,400),72); assert.equal(size(180,400),180);
+ assert.equal(size(900,400),400); assert.equal(size(30,400),72);
+ assert.equal(size(200,120),120); assert.equal(size(900,20),72);
+ assert.equal(size(123.2,180.9),124);
+});
+
+test('autosize measures offscreen without touching text, caret or scroll and coalesces events',()=>{
+ let frame, natural=180, bottom=500, paints=0;
+ const props={}; const card={style:{getPropertyValue:k=>props[k],setProperty:(k,v)=>props[k]=v},getBoundingClientRect:()=>({bottom:300})};
+ const measure={style:{},removeAttribute(){},setAttribute(){},get scrollHeight(){return natural;}};
+ const editor=new EventTarget(); Object.assign(editor,{value:'Speaker 1: unchanged',placeholder:'',selectionStart:5,selectionEnd:9,scrollTop:41,cloneNode:()=>measure,getBoundingClientRect:()=>({top:100,bottom:250,width:400})});
+ const grid={getBoundingClientRect:()=>({bottom})};
+ const ctx={document:{getElementById:id=>id==='composer-grid'?grid:id==='composer-script'?card:null,body:{append(){}}},window:new EventTarget(),requestAnimationFrame:fn=>frame=fn,getComputedStyle:()=>({borderTopWidth:'0',borderBottomWidth:'0'})};
+ vm.runInNewContext(source,ctx);ctx.initWritingStudioAutosize(editor,()=>paints++);frame();
+ assert.equal(props['--editor-height'],'180px'); assert.equal(measure.value,editor.value);
+ natural=900;editor.dispatchEvent(new Event('input'));editor.dispatchEvent(new Event('change'));frame();assert.equal(props['--editor-height'],'348px');
+ natural=20;editor.dispatchEvent(new Event('input'));frame();assert.equal(props['--editor-height'],'72px');
+ assert.equal(editor.value,'Speaker 1: unchanged'); assert.equal(editor.selectionStart,5);assert.equal(editor.selectionEnd,9);assert.equal(editor.scrollTop,41);assert.equal(paints,3);
+});

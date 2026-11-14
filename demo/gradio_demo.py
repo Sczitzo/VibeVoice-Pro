@@ -1016,8 +1016,8 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                             gr.HTML('<button type="button" id="undo-script" class="composer-button" hidden title="Undo last script change (Ctrl+Z)">Undo</button>', padding=False)
                             check_script_btn = gr.Button("Check Script", elem_id="check-script")
                             gr.HTML('<span id="word-count">0 words</span>', padding=False)
+                        gr.HTML('<div class="manuscript-divider"><input id="manuscript-title" aria-label="Session title" placeholder="Untitled session" maxlength="100" autocomplete="off"></div>', elem_id="manuscript-title-row", padding=False)
                     with gr.Column(elem_id="editor-frame"):
-                        gr.HTML('<input id="manuscript-title" aria-label="Session title" placeholder="Untitled session" maxlength="100" autocomplete="off">', padding=False)
                         gr.HTML("""
                             <div id="speaker-chips" aria-label="Insert a speaker label">
                                 <span>Insert speaker</span>
@@ -1099,6 +1099,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                                 </span>
                                 <span class="track-time"><span id="playback-position-time"><span id="playback-elapsed">0:00</span> / </span><span id="playback-duration">0:00</span></span>
                             </div>
+                            <div id="generation-estimate" hidden></div>
                             <div class="transport-wave transport-waveform">
                                 <progress id="generation-progress" aria-label="Audio generation progress" hidden></progress>
                                 <canvas id="playback-waveform" width="480" height="32" aria-hidden="true"></canvas>
@@ -1110,7 +1111,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                 """, elem_id="playback-transport", padding=False)
                 with gr.Column(elem_id="composer-actions"):
                     generate_btn = gr.Button("Generate Audio", variant="primary", elem_id="generate-audio")
-                    stop_btn = gr.Button("Stop", visible=False, elem_id="stop-generation")
+                    stop_btn = gr.Button("Stop generation", visible=False, elem_id="stop-generation")
 
         audio_output = gr.Audio(label="Live Audio", type="numpy", streaming=True, autoplay=False,
                                 show_download_button=False, elem_id="live-generated-audio")
@@ -1516,7 +1517,7 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
             return (
                 live, gr.update(value=completed[0]) if completed else gr.skip(), log,
                 gr.update(visible=streaming), gr.update(visible=not running),
-                gr.update(visible=running, interactive=True, value="Stop"),
+                gr.update(visible=running, interactive=True, value="Stop generation"),
                 gr.update(value=warning, visible=bool(warning)),
                 *(feedback if feedback is not None else (gr.skip(), gr.skip())),
                 completed if completed else gr.skip(), job if job is not None else gr.skip(),

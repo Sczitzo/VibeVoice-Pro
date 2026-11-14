@@ -15,6 +15,10 @@ function initWritingStudio() {
     };
     title.addEventListener('input', sync);
     sync();
+    for (const [id, name] of [['random-example', 'Random Example'], ['check-script', 'Check Script'], ['undo-script', 'Undo']]) {
+        const control = document.getElementById(id);
+        if (control?.setAttribute) { control.setAttribute('title', name); control.setAttribute('aria-label', name); }
+    }
     initCastDisclosure();
     const editor = document.querySelector('#composer-editor textarea');
     if (!editor) return;
@@ -32,6 +36,7 @@ function initWritingStudio() {
     editor.addEventListener('scroll', paint);
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(paint).observe(editor);
     paint();
+    initWritingStudioAutosize(editor, paint);
 }
 
 function initCastDisclosure() {
@@ -62,4 +67,58 @@ function initCastDisclosure() {
     });
     new MutationObserver(update).observe(document.getElementById('speaker-count'), {attributes:true,subtree:true,attributeFilter:['checked','aria-checked']});
     update();
+}
+
+// Keep the real textarea/caret untouched while measuring its wrapped text.
+function writingStudioEditorHeight(natural, available, minimum = 72) {
+    const cap = Math.max(minimum, Math.floor(Number.isFinite(available) ? available : minimum));
+    return Math.min(cap, Math.max(minimum, Math.ceil(Number.isFinite(natural) ? natural : minimum)));
+}
+function initWritingStudioAutosize(editor, paint) {
+    const grid = document.getElementById('composer-grid');
+    const card = document.getElementById('composer-script');
+    if (!grid || !card || !editor.cloneNode) return;
+    const measure = editor.cloneNode(false);
+    measure.removeAttribute('id'); measure.removeAttribute('name');
+    measure.removeAttribute('autofocus'); measure.removeAttribute('required');
+    measure.setAttribute('aria-hidden', 'true'); measure.tabIndex = -1;
+    measure.style.cssText = 'position:fixed!important;left:-10000px!important;top:0!important;visibility:hidden!important;height:0!important;min-height:0!important;max-height:none!important;overflow:hidden!important;pointer-events:none!important;';
+    document.body.append(measure);
+    let pending = false;
+    const resize = () => {
+        pending = false;
+        const style = getComputedStyle(editor);
+        for (const key of ['fontFamily','fontSize','fontWeight','fontStyle','lineHeight','letterSpacing','wordSpacing','textIndent','whiteSpace','overflowWrap','wordBreak','paddingTop','paddingBottom','paddingLeft','paddingRight','borderTopWidth','borderBottomWidth','borderLeftWidth','borderRightWidth','boxSizing']) measure.style[key] = style[key];
+        measure.style.width = editor.getBoundingClientRect().width + 'px';
+        measure.value = editor.value || editor.placeholder || '';
+        const border = (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.borderBottomWidth) || 0);
+        const rect = editor.getBoundingClientRect();
+        const footer = Math.max(0, card.getBoundingClientRect().bottom - rect.bottom);
+        const available = grid.getBoundingClientRect().bottom - rect.top - footer - 2;
+        const height = writingStudioEditorHeight(measure.scrollHeight + border, available);
+        const value = height + 'px';
+        if (card.style.getPropertyValue('--editor-height') !== value) card.style.setProperty('--editor-height', value);
+        paint();
+    };
+    const schedule = () => {
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(resize);
+    };
+    editor.addEventListener('input', schedule);
+    editor.addEventListener('change', schedule);
+    window.addEventListener('resize', schedule);
+    window.visualViewport?.addEventListener('resize', schedule);
+    if (typeof ResizeObserver !== 'undefined') {
+        const observer = new ResizeObserver(schedule);
+        for (const item of [grid, card, editor, document.getElementById('composer-speakers'), document.getElementById('composer-transport')]) if (item) observer.observe(item);
+    }
+    if (typeof MutationObserver !== 'undefined') {
+        const observer = new MutationObserver(schedule);
+        for (const id of ['composer-speakers', 'script-check-feedback', 'generation-feedback']) {
+            const item = document.getElementById(id);
+            if (item) observer.observe(item, {childList:true, subtree:true, attributes:true, attributeFilter:['class','hidden','aria-expanded']});
+        }
+    }
+    schedule();
 }

@@ -77,6 +77,7 @@ function initGeneratedAudio() {
     const elapsed = completed.querySelector("#playback-elapsed");
     const positionTime = completed.querySelector("#playback-position-time");
     const duration = completed.querySelector("#playback-duration");
+    const estimate = completed.querySelector("#generation-estimate");
     const download = completed.querySelector("#download-wav");
     const replay = completed.querySelector("[data-replay-audio]");
     const clear = completed.querySelector("[data-clear-audio]");
@@ -182,7 +183,7 @@ function initGeneratedAudio() {
         const seconds = progressVisible ? generationProgress?.seconds : null;
         const percent = progressVisible ? generationProgress?.percent : null;
         const eta = progressVisible ? generationProgress?.eta : null;
-        const remainingTime = eta > 0 ? " · ~" + formatTime(eta) + " left" : "";
+        const remainingTime = eta > 0 ? (eta < 60 ? " · under 1 min left" : " · about " + Math.ceil(eta / 60) + " min left") : "";
         progressMeter.hidden = !progressVisible;
         if (sections) {
             progressMeter.max = sections.total;
@@ -196,11 +197,13 @@ function initGeneratedAudio() {
             progressMeter.removeAttribute("value");
             progressMeter.removeAttribute("aria-valuetext");
         }
-        positionTime.hidden = Boolean(sections);
-        duration.textContent = sections ? sections.ready + " / " + sections.total + " sections" + remainingTime
-            : percent != null ? "~" + percent + "%" + remainingTime
-            : generating && seconds != null ? formatTime(seconds) + " generated"
-            : generating ? "Live" : formatTime(total);
+        positionTime.hidden = progressVisible;
+        estimate.hidden = !progressVisible;
+        estimate.textContent = sections ? sections.ready + " of " + sections.total + " sections ready" + remainingTime
+            : percent != null ? "Estimated " + percent + "%" + remainingTime
+            : seconds != null ? formatTime(seconds) + " audio generated" : "Estimating time remaining";
+        duration.textContent = progressVisible ? "Preview " + formatTime(current) : formatTime(total);
+        play.setAttribute("aria-label", label + (progressVisible ? " live preview" : " audio"));
         const status = generating ? (percent >= 95 && eta == null ? "Taking longer…" : "Generating…")
             : awaitingOutcome ? (cancelled ? "Stopping…" : requested ? "Starting…" : "Finishing audio…")
             : hasTake ? "Last completed take" : "No audio yet";

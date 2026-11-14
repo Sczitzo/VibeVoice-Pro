@@ -337,3 +337,133 @@ html, body, .gradio-container { background: #f8f6f1 !important; }
 }
 #guided-composer { align-content:start; }
 #guided-composer #composer-transport { align-self:start; height:fit-content; }
+
+/* Active transport: playback time and synthesis estimates are separate concepts. */
+#guided-composer #composer-transport #playback-toggle {
+ display:flex; align-items:center; justify-content:center; width:64px; min-width:64px;
+ height:40px; min-height:40px; padding:0 8px; line-height:1; text-align:center;
+}
+#guided-composer #composer-transport #stop-generation {
+ background:#7b3829; color:#fffaf5; border:1px solid #7b3829; border-radius:12px;
+ font-size:13px; font-weight:650; min-width:128px; height:40px; min-height:40px; padding:0 12px;
+}
+#guided-composer #composer-transport #stop-generation:hover:not(:disabled) { background:#61291e; }
+#generated-audio-player { grid-template-columns:64px minmax(0,1fr) auto; }
+#guided-composer #composer-transport .transport-track { grid-template-rows:auto auto auto; gap:5px; }
+#generation-estimate { font-size:12px; line-height:1.4; color:#526157; }
+#generation-estimate[hidden] { display:none; }
+#guided-composer #composer-transport .track-meta { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 12px; }
+#guided-composer #composer-transport .track-time { white-space:nowrap; font-variant-numeric:tabular-nums; }
+#generated-audio-player:has(#generation-progress:not([hidden])) .transport-waveform { height:6px; min-height:6px; border-radius:4px; overflow:hidden; background:#e2e7df; }
+#generated-audio-player:has(#generation-progress:not([hidden])) :is(#playback-waveform,#playback-seek) { display:none; }
+#guided-composer #generation-progress { display:block; position:static; width:100%; height:6px; border:0; border-radius:4px; opacity:1; background:#e2e7df; }
+#guided-composer #generation-progress[hidden] { display:none; }
+#guided-composer #generation-progress::-webkit-progress-bar { background:#e2e7df; border-radius:4px; }
+#guided-composer #generation-progress::-webkit-progress-value { background:#26745a; border-radius:4px; }
+#guided-composer #generation-progress::-moz-progress-bar { background:#26745a; border-radius:4px; }
+@media(max-width:619px) {
+ #generated-audio-player { grid-template-columns:64px minmax(0,1fr); }
+ #generated-audio-player:has(#download-wav[aria-disabled=true]) { grid-template-columns:64px minmax(0,1fr); }
+ #guided-composer #composer-transport #composer-actions { justify-self:end; width:auto; }
+ #guided-composer #composer-transport #stop-generation { width:auto; }
+}
+#guided-composer #composer-transport #generated-audio-player { grid-template-columns:64px minmax(0,1fr) auto; gap:12px; }
+#guided-composer #composer-transport #generated-audio-player:has(#download-wav[aria-disabled=true]) { grid-template-columns:64px minmax(0,1fr); }
+#guided-composer #composer-transport :is(#playback-title,.track-time,#generation-estimate) { font-size:13px; line-height:1.4; }
+#guided-composer #composer-transport .transport-track { row-gap:5px; }
+#guided-composer #composer-transport #download-wav[aria-disabled=true] { display:none; }
+#guided-composer #composer-transport #composer-actions { align-self:center; }
+/* Script is the left endpoint of the divider; tools stay on their own line. */
+#guided-composer #script-heading { display:flex; flex-wrap:wrap!important; border-bottom:0; gap:4px; padding-inline:0; padding-bottom:0; }
+#guided-composer #script-heading .script-tools { order:0; flex:1 1 100%!important; width:100%!important; justify-content:flex-end; }
+#guided-composer #composer-script-label { order:1; display:flex; align-items:center; gap:10px; flex:1 1 100%; width:100%; min-height:20px; }
+#guided-composer #composer-script-label::after { content:""; flex:1; border-top:1px solid var(--divider); }
+#guided-composer #composer-script-label h2 { margin:0; line-height:20px; flex:none; }
+#guided-composer #composer-script-label::before { content:""; width:30px; flex:0 0 30px; border-top:1px solid var(--divider); }
+
+/* A true outer Script legend and an editable title within the inner divider. */
+#guided-composer #composer-script { position:relative; border-top:0; margin-top:10px; }
+#guided-composer #composer-script-label { position:absolute; top:-10px; left:-1px; right:-1px; width:auto; min-height:20px; gap:10px; z-index:1; }
+#guided-composer #composer-script-label::before { width:30px; flex-basis:30px; }
+#guided-composer #composer-script-label::before,#guided-composer #composer-script-label::after { border-color:var(--divider); }
+#guided-composer #script-heading { position:static; padding-top:12px; gap:8px; }
+#manuscript-title-row { order:2; width:100%; flex:1 1 100%; min-width:0; }
+.manuscript-divider { display:flex; align-items:center; gap:10px; width:100%; min-width:0; }
+.manuscript-divider::before { content:""; flex:0 0 30px; border-top:1px solid var(--divider); }
+.manuscript-divider::after { content:""; flex:1 1 30px; min-width:30px; border-top:1px solid var(--divider); }
+#guided-composer #manuscript-title { field-sizing:content; width:auto; max-width:calc(100% - 80px); min-width:0; flex:0 1 auto; margin:0; padding:2px 0; height:38px; min-height:38px; font-size:26px; line-height:34px; }
+#guided-composer #editor-frame { padding-top:12px; }
+@media(max-width:419px) { #guided-composer #manuscript-title { font-size:22px; } }
+#guided-composer #script-heading #manuscript-title-row { width:100%!important; flex:1 1 100%!important; min-width:0!important; max-width:none!important; }
+#guided-composer #composer-grid > #composer-script { width:100%!important; max-width:100%!important; min-width:0!important; box-sizing:border-box; }
+#guided-composer #script-heading #manuscript-title-row { contain:inline-size; overflow:visible; }
+/* Compact quick insertion gives its recovered space back to the manuscript. */
+#guided-composer #speaker-chips { padding:0!important; gap:4px; min-height:26px; align-items:center; }
+#guided-composer #speaker-chips button { margin:0!important; }
+#guided-composer #editor-frame { padding-top:6px; }
+@media(max-width:900px) {
+ #guided-composer #speaker-chips button { width:26px; min-width:26px; height:26px!important; min-height:26px!important; flex:0 0 26px; }
+}
+@media(max-width:619px) {
+ #guided-composer #composer-editor,#guided-composer #composer-editor > .form,#guided-composer #composer-editor label,#guided-composer #composer-editor .input-container,#guided-composer #composer-editor .manuscript-edit-surface { min-height:244px; }
+ #guided-composer #composer-editor textarea { height:244px!important; min-height:244px; }
+}
+/* Keep the card's rounded outline native; interrupt only behind its short legend. */
+#guided-composer #composer-script { border-top:1px solid var(--divider); }
+#guided-composer #composer-script-label { left:28px; right:auto; width:max-content; max-width:calc(100% - 56px); flex:none; padding:0 8px; background:var(--surface); }
+#guided-composer #composer-script-label::before,#guided-composer #composer-script-label::after { display:none; }
+@media(max-width:619px) {
+ #guided-composer #editor-frame > .form:has(#composer-editor),#guided-composer #composer-editor { height:244px!important; min-height:244px!important; }
+ #guided-composer #composer-editor :is(label,.input-container,.manuscript-edit-surface,textarea) { min-height:244px!important; }
+}
+
+/* Window-bounded editing workspace. Overflow belongs to content regions, not the page. */
+html:has(#guided-composer),body:has(#guided-composer) { height:100%; margin:0; }
+#guided-composer { height:100dvh!important; min-height:0!important; display:grid!important; grid-template-rows:auto minmax(0,1fr) auto!important; gap:0!important; overflow:clip; }
+#composer-header { min-height:0!important; }
+#guided-composer .composer-header { height:auto; min-height:54px; padding-block:8px; }
+#guided-composer #composer-grid { height:100%; min-height:0!important; padding-top:12px; padding-bottom:2px; gap:10px; overflow:auto; overscroll-behavior:contain; align-items:stretch; }
+#guided-composer #composer-grid > #composer-script { flex:0 0 auto!important; min-height:0!important; height:auto!important; max-height:none; border:0; box-shadow:none; }
+#guided-composer #composer-script::before { content:""; display:block!important; position:absolute; inset:0; border:1px solid var(--divider); border-radius:16px; pointer-events:none; clip-path:polygon(0 0,28px 0,28px 12px,calc(28px + var(--heading-gap,60px)) 12px,calc(28px + var(--heading-gap,60px)) 0,100% 0,100% 100%,0 100%); }
+#guided-composer #composer-script-label { background:transparent!important; padding-inline:10px; }
+#guided-composer #editor-frame { flex:0 0 auto!important; min-height:0!important; padding-bottom:8px; }
+#guided-composer #editor-frame > .form:has(#composer-editor),#guided-composer #composer-editor { flex:none!important; height:var(--editor-height,88px)!important; min-height:0!important; }
+#guided-composer #composer-editor :is(label,.input-container,.manuscript-edit-surface,textarea) { height:var(--editor-height,88px)!important; min-height:0!important; max-height:none!important; }
+#guided-composer #composer-editor textarea,#guided-composer #composer-editor .manuscript-ink { font-size:18px!important; line-height:1.5!important; padding:6px 0 8px; }
+#guided-composer #composer-editor textarea { overflow:auto!important; resize:none; }
+#guided-composer #composer-transport { margin:10px auto!important; min-height:0!important; }
+#guided-composer #script-heading .script-tools { display:flex!important; width:100%!important; flex-wrap:wrap!important; justify-content:flex-end; gap:5px; }
+#guided-composer #script-heading .script-tools > * { width:auto!important; min-width:0!important; flex:0 0 auto!important; }
+#guided-composer #script-heading :is(#random-example,#check-script) { font-size:0!important; width:32px!important; min-width:32px!important; height:32px!important; min-height:32px!important; padding:6px!important; display:inline-grid; place-items:center; }
+#guided-composer #script-heading :is(#random-example,#check-script)::before { content:""; display:block; width:20px; height:20px; background:currentColor; mask:var(--tool-icon) center/contain no-repeat; }
+#random-example { --tool-icon:url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"%3E%3Crect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke="black" stroke-width="1.7"/%3E%3Cg fill="black"%3E%3Ccircle cx="7.5" cy="7.5" r="1.4"/%3E%3Ccircle cx="16.5" cy="7.5" r="1.4"/%3E%3Ccircle cx="12" cy="12" r="1.4"/%3E%3Ccircle cx="7.5" cy="16.5" r="1.4"/%3E%3Ccircle cx="16.5" cy="16.5" r="1.4"/%3E%3C/g%3E%3C/svg%3E'); }
+#check-script { --tool-icon:url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"%3E%3Cpath d="M14 3H5v18h14V8zM14 3v5h5M8 14l2 2 5-5" fill="none" stroke="black" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/%3E%3C/svg%3E'); }
+#guided-composer #speaker-chips button { width:26px; min-width:26px; height:26px!important; min-height:26px!important; flex:0 0 26px; background:transparent!important; position:relative; border:0; font-size:0!important; }
+#guided-composer #speaker-chips button::after { content:attr(data-speaker); display:grid; place-items:center; width:18px; height:18px; border-radius:4px; background:var(--tone,#d7e9df); font-size:11px; line-height:18px; }
+#guided-composer #speaker-chips button:hover::after { filter:brightness(.95); }
+@media(max-height:600px) { #guided-composer .composer-header { min-height:44px; padding-block:4px; } #guided-composer #composer-transport { margin-block:6px!important; } }
+#guided-composer #composer-grid { flex-wrap:nowrap!important; }
+#guided-composer #script-heading #undo-script { font-size:0!important; width:32px!important; min-width:32px!important; height:32px!important; min-height:32px!important; padding:6px!important; display:inline-grid; place-items:center; }
+#guided-composer #script-heading #undo-script::before { content:""; display:block; width:20px; height:20px; background:currentColor; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 4 3 9l5 5M3 9h11a6 6 0 0 1 0 12h-3'/%3E%3C/svg%3E") center/contain no-repeat; }
+#guided-composer #script-heading :is(#random-example,#check-script,#undo-script) { position:relative; display:block!important; line-height:0!important; overflow:visible!important; }
+#guided-composer #script-heading :is(#random-example,#check-script,#undo-script)::before { position:absolute; inset:6px; }
+#guided-composer #composer-script #script-heading .script-tools #undo-script { font-size:0!important; width:32px!important; max-width:32px!important; min-width:32px!important; overflow:visible!important; line-height:0!important; }
+#guided-composer #composer-script #script-heading .script-tools #undo-script[hidden] { display:none!important; }
+#guided-composer #composer-grid > #composer-script { width:calc(100% - 2px)!important; }
+#guided-composer #composer-grid { padding-inline:1px!important; box-sizing:border-box!important; }
+/* Voice assignments are named setting rows, not detached numbered pills. */
+#guided-composer #composer-speakers #voice-assignments > .form { grid-template-columns:repeat(2,minmax(0,1fr)); max-width:820px; margin-inline:auto; gap:6px 20px; }
+#guided-composer #composer-speakers:has(#speaker-count input[value="1"]:checked) #voice-assignments > .form { grid-template-columns:minmax(0,1fr); max-width:390px; }
+#guided-composer #composer-speakers:has(#speaker-count input[value="3"]:checked) #voice-assignments > .form { grid-template-columns:repeat(3,minmax(0,1fr)); max-width:1080px; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item { padding:0!important; border:0!important; border-radius:8px; background:transparent; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item > .container { gap:7px; padding:3px 7px; min-width:0; border-bottom:1px solid var(--divider); border-radius:7px; box-sizing:border-box; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item > .container::before { width:18px; height:18px; flex-basis:18px; font-size:11px; border-radius:4px; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item [data-testid="block-info"] { position:static; width:auto; height:auto; clip-path:none; overflow:visible; flex:0 0 auto; margin:0; color:var(--muted); font-size:12px; line-height:18px; white-space:nowrap; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item > .container > .wrap { height:32px; min-width:0; border:0!important; border-radius:5px; background:transparent!important; padding-inline:5px; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item:hover { background:#e9ede580; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item:focus-within { outline:2px solid var(--accent); outline-offset:2px; background:var(--surface); }
+#guided-composer #composer-speakers #voice-assignments .speaker-item input { font-size:14px; font-weight:500; }
+@media(max-width:1000px) { #guided-composer #composer-speakers:has(#speaker-count input[value="3"]:checked) #voice-assignments > .form { grid-template-columns:minmax(0,1fr); max-width:390px; } }
+@media(max-width:660px) { #guided-composer #composer-speakers #voice-assignments > .form { grid-template-columns:minmax(0,1fr); max-width:390px; } }
+#guided-composer #composer-speakers #voice-assignments .speaker-item [data-testid="block-info"]::before { display:none; }
+#guided-composer #composer-speakers #voice-assignments .speaker-item .icon-wrap { align-self:center; transform:none!important; top:auto!important; margin:0!important; height:14px; }
