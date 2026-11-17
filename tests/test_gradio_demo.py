@@ -231,6 +231,29 @@ class GenerationRecoveryTests(unittest.TestCase):
         self.assertTrue(results[-1][4]["visible"])
         self.assertFalse(results[-1][5]["visible"])
 
+    def test_audio_timestamps_survive_buffering(self):
+        streamer = gradio_demo.AudioStreamer(batch_size=1, timestamp=True)
+        with patch('vibevoice.modular.streamer.monotonic', side_effect=(12, 18)):
+            for _ in range(2):
+                streamer.put(torch.tensor([[0.1, -0.1]]), torch.tensor([0]))
+        streamer.end()
+        self.assertEqual([produced_at for _, produced_at in streamer.get_stream(0)], [12, 18])
+
+    def test_generation_seed_applies_to_the_model_without_changing_the_default_rng(self):
+        draws = []
+        self.demo.processor = SimpleNamespace(tokenizer=None)
+        self.demo.model = SimpleNamespace(
+            set_ddpm_inference_steps=lambda **_kwargs: None,
+            generate=lambda **_kwargs: draws.append(torch.randn(4)),
+        )
+        streamer = SimpleNamespace(end=lambda: None)
+        before = torch.get_rng_state()
+        for seed in (42, 42, 43):
+            self.demo._generate_with_streamer({}, 1.3, streamer, True, 10, seed, "cpu", lambda: False, False)
+        self.assertTrue(torch.equal(draws[0], draws[1]))
+        self.assertFalse(torch.equal(draws[0], draws[2]))
+        self.assertTrue(torch.equal(before, torch.get_rng_state()))
+
     def test_generation_worker_error_reaches_the_log(self):
         def processor(**_kwargs):
             return {}
@@ -287,6 +310,32 @@ class GenerationRecoveryTests(unittest.TestCase):
         ])
         self.assertIs(captured["voice_samples"][0][0], reference)
         self.assertIn("Formatted script with 1 turns", results[-1][2])
+
+    def test_stop_after_final_preview_does_not_write_a_completed_wav(self):
+        def processor(**_kwargs):
+            return {}
+
+        def generate(**kwargs):
+            streamer = kwargs["audio_streamer"]
+            streamer.put(torch.tensor([[0.1, -0.1]]), torch.tensor([0]))
+            streamer.end()
+
+        processor.tokenizer = None
+        self.demo.processor = processor
+        self.demo.device = "cpu"
+        self.demo.model = SimpleNamespace(set_ddpm_inference_steps=lambda **_kwargs: None, generate=generate)
+        cancelled = threading.Event()
+        with patch("demo.gradio_demo.time.sleep"), patch("demo.gradio_demo.sf.write") as write:
+            for _, path, log, status in self.demo.generate_podcast_streaming(
+                1, "Speaker 1: Hello.", speaker_1="en-Alice_woman", disable_voice_cloning=True,
+                cancelled=cancelled,
+            ):
+                self.assertIsNone(path)
+                if status.get("final_chunk"):
+                    cancelled.set()
+        self.assertTrue(cancelled.is_set())
+        self.assertIn("Generation stopped by user", log)
+        write.assert_not_called()
 
     def test_section_that_hits_model_limit_does_not_return_partial_wav(self):
         def processor(**_kwargs):

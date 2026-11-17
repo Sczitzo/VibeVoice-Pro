@@ -41,7 +41,7 @@ test('estimated progress and ETA update while playback is paused and clear on St
     h.play.dispatchEvent(new Event('click'));
     h.api.finish({running:true, progress:{seconds:8, percent:40, eta:12}}, null);
     assert.equal(h.live.paused, true);
-    assert.equal(h.estimate.textContent, 'Estimated 40% · under 1 min left');
+    assert.equal(h.estimate.textContent, 'Estimated 40% · ~0:12 left');
     assert.equal(h.meter.max, 100);
     assert.equal(h.meter.value, 40);
     assert.equal(h.meter.hidden, false);
@@ -177,14 +177,16 @@ test('new src waits until stale currentSrc has been replaced before playing or t
     h.finish('/second.wav');assert.equal(h.audio.currentTime,0);
 });
 
-test('generation estimates never replace playback duration and round long ETA for display',()=>{
+test('generation estimates show seconds, preserve playback duration, and clear when audio is finishing',()=>{
  const h=harness();h.begin();h.live.currentTime=30;
  h.api.finish({running:true,progress:{percent:3,eta:1652}},null);
  assert.equal(h.duration.textContent,'Preview 0:30');
- assert.equal(h.estimate.textContent,'Estimated 3% · about 28 min left');
+ assert.equal(h.estimate.textContent,'Estimated 3% · ~27:32 left');
  assert.equal(h.play.attrs['aria-label'],'Pause live preview');
  h.play.dispatchEvent(new Event('click'));
  assert.equal(h.play.attrs['aria-label'],'Play live preview');
  assert.equal(h.meter.hidden,false);
+ h.api.finish({running:true,progress:{seconds:44,finishing:true}},null);
+ assert.equal(h.estimate.textContent,'0:44 audio generated');
  h.finish();assert.equal(h.estimate.hidden,true);assert.equal(h.duration.textContent,'1:40');
 });
