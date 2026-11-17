@@ -4,6 +4,7 @@ import torch
 
 import asyncio
 from queue import Queue
+from time import monotonic
 from typing import TYPE_CHECKING, Optional
 
 
@@ -22,6 +23,8 @@ class AudioStreamer(BaseStreamer):
             The signal to put in the queue when generation ends. Defaults to None.
         timeout (`float`, *optional*):
             The timeout for the audio queue. If `None`, the queue will block indefinitely.
+        timestamp (`bool`, *optional*):
+            Yield each chunk with its monotonic production time when enabled.
     """
     
     def __init__(
@@ -29,10 +32,12 @@ class AudioStreamer(BaseStreamer):
         batch_size: int,
         stop_signal: Optional[any] = None,
         timeout: Optional[float] = None,
+        timestamp: bool = False,
     ):
         self.batch_size = batch_size
         self.stop_signal = stop_signal
         self.timeout = timeout
+        self.timestamp = timestamp
         
         # Create a queue for each sample in the batch
         self.audio_queues = [Queue() for _ in range(batch_size)]
@@ -52,7 +57,8 @@ class AudioStreamer(BaseStreamer):
             if idx < self.batch_size and not self.finished_flags[idx]:
                 # Convert to numpy or keep as tensor based on preference
                 audio_chunk = audio_chunks[i].detach().cpu()
-                self.audio_queues[idx].put(audio_chunk, timeout=self.timeout)
+                value = (audio_chunk, monotonic()) if self.timestamp else audio_chunk
+                self.audio_queues[idx].put(value, timeout=self.timeout)
     
     def end(self, sample_indices: Optional[torch.Tensor] = None):
         """

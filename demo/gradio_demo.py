@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 import time
+from collections import deque
 from uuid import uuid4
 from hashlib import sha256
 from html import escape
@@ -613,7 +614,8 @@ class VibeVoiceDemo:
             audio_streamer = AudioStreamer(
                 batch_size=1,
                 stop_signal=None,
-                timeout=None
+                timeout=None,
+                timestamp=True,
             )
 
             # Store current streamer for potential stopping
@@ -652,7 +654,7 @@ class VibeVoiceDemo:
             has_yielded_audio = False
             has_received_chunks = False  # Track if we received any chunks at all
 
-            for audio_chunk in audio_stream:
+            for audio_chunk, produced_at in audio_stream:
                 # Check for stop signal in the streaming loop
                 if stopped():
                     audio_streamer.end()
@@ -707,19 +709,11 @@ class VibeVoiceDemo:
                     log_update = log + f"🎵 Streaming: {total_duration:.1f}s generated (chunk {chunk_count})\n"
 
                     # Yield streaming audio chunk and keep complete_audio as None during streaming
-                    yield (sample_rate, new_audio), None, log_update, gr.update(visible=True)
+                    yield (sample_rate, new_audio), None, log_update, {"produced_at": produced_at}
 
                     # Clear pending chunks after yielding
                     pending_chunks = []
                     last_yield_time = current_time
-
-            # Yield any remaining chunks
-            if pending_chunks:
-                final_new_audio = np.concatenate(pending_chunks)
-                total_duration = sum(len(chunk) for chunk in all_audio_chunks) / sample_rate
-                log_update = log + f"🎵 Streaming final chunk: {total_duration:.1f}s total\n"
-                yield (sample_rate, final_new_audio), None, log_update, gr.update(visible=True)
-                has_yielded_audio = True  # Mark that we yielded audio
 
             generation_thread.join()
 
@@ -737,6 +731,16 @@ class VibeVoiceDemo:
             if self.generation_error:
                 yield None, None, log + f"\n❌ Generation failed: {self.generation_error}", gr.update(visible=False)
                 return
+
+            if pending_chunks:
+                final_new_audio = np.concatenate(pending_chunks)
+                total_duration = sum(len(chunk) for chunk in all_audio_chunks) / sample_rate
+                log_update = log + f"🎵 Streaming final chunk: {total_duration:.1f}s total\n"
+                yield (sample_rate, final_new_audio), None, log_update, {"final_chunk": True}
+                has_yielded_audio = True
+                if stopped():
+                    yield None, None, "🛑 Generation stopped by user", gr.update(visible=False)
+                    return
 
             # Debug logging
             # print(f"Debug: has_received_chunks={has_received_chunks}, chunk_count={chunk_count}, all_audio_chunks length={len(all_audio_chunks)}")
@@ -835,33 +839,26 @@ class VibeVoiceDemo:
             except Exception as e:
                 print(f"Warning: failed to set inference steps ({inference_steps}): {e}")
 
-            generator = None
-            if seed is not None:
-                try:
-                    if target_device == "cuda":
-                        generator = torch.Generator(device="cuda")
-                    else:
-                        generator = torch.Generator()
-                    generator.manual_seed(int(seed))
-                except Exception as e:
-                    print(f"Warning: failed to create seeded generator (seed={seed}, device={target_device}): {e}")
-                    generator = None
-
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=None,
-                cfg_scale=cfg_scale,
-                tokenizer=self.processor.tokenizer,
-                generation_config={
-                    'do_sample': False,
-                },
-                generator=generator,
-                audio_streamer=audio_streamer,
-                stop_check_fn=stopped,
-                verbose=False,  # Disable verbose in streaming mode
-                refresh_negative=True,
-                is_prefill=voice_cloning_enabled,
-            )
+            devices = [] if target_device == "cpu" else [target_device]
+            # The voice encoder and diffusion scheduler both use the default RNGs.
+            with torch.random.fork_rng(devices, enabled=seed is not None,
+                                       device_type="mps" if target_device == "mps" else "cuda"):
+                if seed is not None:
+                    torch.random.default_generator.manual_seed(seed)
+                    if devices:
+                        getattr(torch, target_device).manual_seed(seed)
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=None,
+                    cfg_scale=cfg_scale,
+                    tokenizer=self.processor.tokenizer,
+                    generation_config={'do_sample': False},
+                    audio_streamer=audio_streamer,
+                    stop_check_fn=stopped,
+                    verbose=False,
+                    refresh_negative=True,
+                    is_prefill=voice_cloning_enabled,
+                )
             capped = getattr(outputs, "reach_max_step_sample", None)
             if require_complete and capped is not None and capped.any().item():
                 self.generation_error = "The model reached its limit before finishing this section."
@@ -1610,8 +1607,9 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                 return
             choices = (speaker_1, speaker_2, speaker_3, speaker_4)
             slots = {slot for part in check.sections for slot in part.voice_slots} if sectioned else check.voice_slots
+            available_voices = demo_instance.available_voices
             for slot in slots:
-                if choices[slot] not in demo_instance.available_voices:
+                if choices[slot] not in available_voices:
                     message = f"Choose an available voice for Speaker {slot + 1}."
                     yield generation_update(message, warning=message)
                     return
@@ -1628,25 +1626,22 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                     job = SectionJob(check.sections, inputs)
                     yield from run_sections(job, range(len(job.sections)), cancelled, feedback=feedback)
                     return
-                timing_key = (tuple(choices[slot] for slot in check.voice_slots),
-                              inference_steps, cfg_scale, disable_voice_cloning)
-                units = spoken_units(check)
-                # shortcut: script length only approximates spoken duration; use measured
-                # alignment if the model later reports which words it has finished.
-                expected_seconds = max(2, units / 2.25)
-                initial_eta = None
-                if last_timing and last_timing[0] == timing_key:
-                    _, seconds_per_unit, compute_per_second = last_timing
-                    expected_seconds = max(2, units * seconds_per_unit)
-                    initial_eta = math.ceil(expected_seconds * compute_per_second)
+                voices = tuple(choices[slot] for slot in check.voice_slots)
+                timing_key = (sha256(check.formatted.encode()).digest(), voices,
+                              tuple(demo_instance.voice_revision(available_voices[name]) for name in voices),
+                              inference_steps, cfg_scale, disable_voice_cloning, seed)
+                # shortcut: only time repeatable jobs until the model can report script alignment.
+                repeatable = seed is not None and seed >= 0
+                previous = last_timing if repeatable and last_timing and last_timing[0] == timing_key else None
                 started = time.monotonic()
                 yield generation_update("Starting generation…", running=True, feedback=feedback,
                                         live=gr.update(value=None),
-                                        progress={"percent": 0, "eta": initial_eta})
+                                        progress={"percent": 0, "eta": math.ceil(previous[2])} if previous else None)
                 final_log = "Starting generation…"
                 completed = None
                 generated_seconds = 0.0
-                for streaming_audio, complete_audio, log, _ in demo_instance.generate_podcast_streaming(
+                recent = deque()
+                for streaming_audio, complete_audio, log, stream_state in demo_instance.generate_podcast_streaming(
                     **inputs, checked=check, cancelled=cancelled
                 ):
                     final_log = log
@@ -1655,16 +1650,26 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                     if streaming_audio is not None and not cancelled.is_set():
                         sample_rate, samples = streaming_audio
                         generated_seconds += len(samples) / sample_rate
-                        remaining = expected_seconds - generated_seconds
-                        elapsed = time.monotonic() - started
-                        eta = math.ceil(remaining * elapsed / generated_seconds) if remaining > 0 and elapsed > 0 else None
+                        progress = {"seconds": int(generated_seconds)}
+                        if (stream_state or {}).get("final_chunk"):
+                            progress["finishing"] = True
+                        elif previous:
+                            _, expected_seconds, previous_elapsed = previous
+                            remaining = expected_seconds - generated_seconds
+                            produced_at = stream_state["produced_at"]
+                            recent.append((generated_seconds, produced_at))
+                            while len(recent) > 1 and recent[1][0] <= generated_seconds - 8:
+                                recent.popleft()
+                            since_audio, since_time = recent[0]
+                            # Two seconds of prior pace smooth bursts without masking a sustained slowdown.
+                            rate = ((produced_at - since_time + 2 * previous_elapsed / expected_seconds)
+                                    / (generated_seconds - since_audio + 2))
+                            progress.update(percent=min(99, int(100 * generated_seconds / expected_seconds)),
+                                            eta=math.ceil(remaining * rate) if remaining > 0 else None)
                         yield generation_update(log, running=True, live=streaming_audio, streaming=True,
-                                                progress={"seconds": int(generated_seconds),
-                                                          "percent": min(95, int(100 * generated_seconds / expected_seconds)),
-                                                          "eta": eta})
-                if completed and generated_seconds >= 2:
-                    last_timing = (timing_key, generated_seconds / units,
-                                   (time.monotonic() - started) / generated_seconds)
+                                                progress=progress)
+                if repeatable and completed and generated_seconds >= 2 and not cancelled.is_set():
+                    last_timing = (timing_key, generated_seconds, time.monotonic() - started)
                 warning = None
                 if not completed and not cancelled.is_set():
                     warning = "Audio wasn’t generated. Check Technical Details and try again."

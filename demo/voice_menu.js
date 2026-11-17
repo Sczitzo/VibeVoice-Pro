@@ -149,10 +149,10 @@ function initVoiceMenu() {
             undo.disabled = false;
             if (result?.changed) assignments.dispatchEvent(new Event("vibevoice-voices-changed"));
             paint();
-            if (reopen && input?.isConnected && (document.activeElement === document.body || document.activeElement === undo)) {
-                // Let Gradio apply the new choices before opening the full list again.
+            const nextFocus = !undo.hidden ? undo : reopen && input?.isConnected ? input : null;
+            if (nextFocus) {
                 requestAnimationFrame(() => {
-                    if (document.activeElement === document.body || document.activeElement === undo) input.focus();
+                    if (document.activeElement === document.body || document.activeElement === undo) nextFocus.focus();
                 });
             }
         },

@@ -245,31 +245,35 @@ class StudioIntegrationTests(unittest.TestCase):
         self.assertEqual(generate.trigger_mode, 'once')
         self.assertEqual(generate.concurrency_limit, 1)
 
-    def test_generation_emits_explicit_terminal_outcome_with_file(self):
+    def test_generation_estimates_only_a_measured_repeat_and_clears_eta_when_finishing(self):
         def generate(**kwargs):
-            yield (24000, np.zeros(36000, dtype=np.int16)), None, 'Live', {}
-            yield (24000, np.zeros(36000, dtype=np.int16)), None, 'Live', {}
+            yield (24000, np.zeros(36000, dtype=np.int16)), None, 'Live', {'produced_at': 103}
+            yield (24000, np.zeros(36000, dtype=np.int16)), None, 'Live', {'produced_at': 106}
+            yield (24000, np.zeros(36000, dtype=np.int16)), None, 'Final audio', {'final_chunk': True}
             yield None, str(self.wav), 'Complete', {}
         self.demo.generate_podcast_streaming = generate
         calls = self.callbacks(self.interface())
-        clock = SimpleNamespace(monotonic=iter([100, 103, 106, 107, 108]).__next__)
+        clock = SimpleNamespace(monotonic=iter([100, 110, 111, 118, 119]).__next__)
         with patch.object(app, 'time', clock):
             results = list(calls['generate_podcast_wrapper'](*self.args()))
-            next_run = calls['generate_podcast_wrapper'](*self.args())
+            next_run = list(calls['generate_podcast_wrapper'](*self.args()))
+            next_progress = [json.loads(row[-1])['progress'] for row in next_run]
+            other_run = calls['generate_podcast_wrapper'](*self.args('Speaker 1: Goodbye.'))
             try:
-                next_progress = json.loads(next(next_run)[-1])['progress']
+                other_progress = json.loads(next(other_run)[-1])['progress']
             finally:
-                next_run.close()
+                other_run.close()
         self.assertTrue(json.loads(results[0][-1])['running'])
         progress = [json.loads(row[-1])['progress'] for row in results]
-        self.assertEqual(progress[0], {'percent': 0, 'eta': None})
-        self.assertEqual([entry['seconds'] for entry in progress[1:3]], [1, 3])
-        self.assertEqual(progress[1]['percent'], 75)
-        self.assertEqual(progress[1]['eta'], 1)
-        self.assertEqual(progress[2]['percent'], 95)
-        self.assertIsNone(progress[2]['eta'])
+        self.assertIsNone(progress[0])
+        self.assertEqual(progress[1], {'seconds': 1})
+        self.assertEqual(progress[2], {'seconds': 3})
+        self.assertEqual(progress[3], {'seconds': 4, 'finishing': True})
         self.assertIsNone(progress[-1])
-        self.assertEqual(next_progress['eta'], 7)
+        self.assertEqual(next_progress[0], {'percent': 0, 'eta': 10})
+        self.assertEqual(next_progress[2], {'seconds': 3, 'percent': 66, 'eta': 4})
+        self.assertEqual(next_progress[3], {'seconds': 4, 'finishing': True})
+        self.assertIsNone(other_progress)
         self.assertEqual(json.loads(results[-1][-1])['completed'], True)
         self.assertFalse(json.loads(results[-1][-1])['running'])
         self.assertEqual(results[-1][1]['value'], str(self.wav))
@@ -278,6 +282,24 @@ class StudioIntegrationTests(unittest.TestCase):
         self.assertFalse(json.loads(rejected[-1])['completed'])
         self.assertNotEqual(json.loads(rejected[-1])['id'], json.loads(results[-1][-1])['id'])
         self.assertNotIn('value', rejected[1])
+
+    def test_estimate_recovers_when_audio_generation_slows_mid_run(self):
+        schedules = iter([(4, 8, 12, 16, 20, 24), (34, 38, 42, 54, 66, 78)])
+
+        def generate(**_kwargs):
+            for index, produced_at in enumerate(next(schedules)):
+                state = {'final_chunk': index == 5, 'produced_at': produced_at}
+                yield (24000, np.zeros(96000, dtype=np.int16)), None, 'Live', state
+            yield None, str(self.wav), 'Complete', {}
+
+        self.demo.generate_podcast_streaming = generate
+        wrapper = self.callbacks(self.interface())['generate_podcast_wrapper']
+        clock = SimpleNamespace(monotonic=iter([0, 24.2, 30, 78.2]).__next__)
+        with patch.object(app, 'time', clock):
+            list(wrapper(*self.args()))
+            replay = list(wrapper(*self.args()))
+        late_estimate = json.loads(replay[5][-1])['progress']['eta']
+        self.assertAlmostEqual(late_estimate, 78.2 - 66, delta=2)
 
     def test_valid_generation_resets_previous_live_stream_but_retains_completed_take(self):
         def generate(**kwargs):
